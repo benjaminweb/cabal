@@ -1,9 +1,15 @@
+{-# LANGUAGE RecordWildCards, OverloadedStrings #-}
 module Distribution.Client.Progress.Render
   ( redraw, totalLine, componentLine, componentLines
   , ColumnWidths, defaultColumnWidths, Align(..), align
   , progressBar, ratio, filledSegments
-  , moveCursorLinesUp, clearWholeLine, clearToEndOfScreen
+  , moveCursorLinesUp, clearToEndOfScreen
   ) where
+
+import Data.Text (Text)
+import qualified Data.Text as T
+import qualified Data.Text.IO as TIO
+import Data.Maybe (mapMaybe)
 
 import Distribution.Client.Progress.Types
 
@@ -39,6 +45,8 @@ componentLine ColumnWidths {..} packageName ce = case ce of
                                                                                ratio cwRatioDigits ceDoneCount ceTotalCount <> " " <> "   " <>
                                                                                align ToLeft cwBarOrModule ceModuleName
                                        ComponentDone -> Nothing
+
+type PackageName = Text
 
 componentLines :: [(PackageName, ComponentEvent)] -> [Text]
 componentLines = mapMaybe (uncurry $ componentLine defaultColumnWidths)

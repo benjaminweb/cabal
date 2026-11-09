@@ -1,3 +1,4 @@
+{-# LANGUAGE OverloadedStrings #-}
 module UnitTests.Distribution.Client.Progress (tests) where
 
 import Test.Tasty
@@ -9,10 +10,8 @@ import Distribution.Client.Progress.Types
 import Distribution.Client.Progress.Render   (filledSegments)
 import Distribution.Client.Progress.Parser   (rectBracket, ghcLine)
 
-main = defaultMain tests
-
-tests :: TestTree
-tests = testGroup "Tests" [progress, ghcLineParser]
+tests :: [TestTree]
+tests = [testGroup "Tests" [progress, ghcLineParser]]
 
 progress = testGroup "progress lib"
  [ testCase "filledSegments computes scaled filled count correctly" $ do

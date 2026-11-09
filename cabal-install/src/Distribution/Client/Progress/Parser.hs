@@ -1,4 +1,8 @@
-module Distribution.Client.Progress.Parser (parseGhcLine) where
+{-# LANGUAGE RecordWildCards #-}
+module Distribution.Client.Progress.Parser
+ ( rectBracket
+ , ghcLine
+ ) where
 
 import Text.Parsec
 import Text.Parsec.Text (Parser)

@@ -170,7 +170,7 @@ import Distribution.Client.Utils
   ( determineNumJobs
   , relaxEncodingErrors
   )
-import Distribution.Client.Utils.Handle (withProgressBar)
+import Distribution.Client.Progress (withProgressBar)
 import Distribution.Client.Version
   ( cabalInstallGitInfo
   , cabalInstallVersion

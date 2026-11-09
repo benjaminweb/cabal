@@ -1,6 +1,12 @@
+{-# LANGUAGE RecordWildCards #-}
 module Distribution.Client.Progress.Runner (runner) where
 
-import Distribution.Client.Progress.State (Progress, ComponentsCompiling(..), completedCount)
+import qualified Data.Map.Strict as M
+import Control.Monad               (unless)
+import Control.Concurrent.STM      (atomically, check)
+import Control.Concurrent.STM.TVar (readTVar, readTVarIO)
+
+import Distribution.Client.Progress.State (Progress(..), ComponentsCompiling(..), completedCount)
 import Distribution.Client.Progress.Render
 import Distribution.Client.Progress.Types
 

@@ -1,6 +1,7 @@
 module Distribution.Client.Utils.Handle
   ( withPipeFor
   , withTee
+  , forwardLines
   ) where
 
 import Control.Concurrent.Async  (withAsync, waitCatch)

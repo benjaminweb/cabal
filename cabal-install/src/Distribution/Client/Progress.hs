@@ -1,11 +1,16 @@
 module Distribution.Client.Progress (withProgressBar) where
 
+import Control.Monad   (unless)
+import System.IO       (hGetLine, hPutStrLn, hIsEOF, stderr, stdout)
+import System.IO.Error (catchIOError)
+
 import Distribution.Client.Progress.Parser
 import Distribution.Client.Progress.Runner
 import Distribution.Client.Progress.State
 import Distribution.Client.Progress.Types
+import Distribution.Client.Utils.Handle
 import Distribution.Verbosity
-  (Verbosity, VerbosityHandles(..), mkVerbosity, verbosityFlags, verbosityHandles, ProgressSink(..))
+  (Verbosity, VerbosityHandles(..), mkVerbosity, verbosityFlags, verbosityHandles)
 
 withProgressBar :: Verbosity -> (Verbosity -> IO a) -> IO a
 withProgressBar verbosity0 k = do

@@ -15,12 +15,14 @@ import qualified UnitTests.Distribution.Client.IndexUtils.Timestamp
 import qualified UnitTests.Distribution.Client.Init
 import qualified UnitTests.Distribution.Client.InstallPlan
 import qualified UnitTests.Distribution.Client.JobControl
+import qualified UnitTests.Distribution.Client.Progress
 import qualified UnitTests.Distribution.Client.ProjectConfig
 import qualified UnitTests.Distribution.Client.ProjectPlanning
 import qualified UnitTests.Distribution.Client.Store
 import qualified UnitTests.Distribution.Client.Tar
 import qualified UnitTests.Distribution.Client.Targets
 import qualified UnitTests.Distribution.Client.UserConfig
+import qualified UnitTests.Distribution.Client.Utils.Handle
 import qualified UnitTests.Distribution.Solver.Modular.Builder
 import qualified UnitTests.Distribution.Solver.Modular.RetryLog
 import qualified UnitTests.Distribution.Solver.Modular.Solver
@@ -90,6 +92,9 @@ main = do
       , testGroup
           "UnitTests.Distribution.Client.UserConfig"
           UnitTests.Distribution.Client.UserConfig.tests
+      , testGroup
+          "UnitTests.Distribution.Client.Utils.Handle"
+          UnitTests.Distribution.Client.Utils.Handle.tests
       , testGroup
           "UnitTests.Distribution.Client.Progress"
           UnitTests.Distribution.Client.Progress.tests
