@@ -107,15 +107,17 @@ data Verbosity = Verbosity
 
 -- | Handles to use for logging (e.g. log to stdout, or log to a file).
 data VerbosityHandles = VerbosityHandles
-  { vStdoutHandle :: Handle
-  , vStderrHandle :: Handle
+  { vCabalStdout  :: Handle
+  , vCabalStderr  :: Handle
+  , vGHCOutput    :: Handle
   }
 
 defaultVerbosityHandles :: VerbosityHandles
 defaultVerbosityHandles =
   VerbosityHandles
-    { vStdoutHandle = stdout
-    , vStderrHandle = stderr
+    { vCabalStdout = stdout
+    , vCabalStderr = stderr
+    , vGHCOutput   = stdout
     }
 
 -- | Verbosity information which can be passed by the CLI.
@@ -135,17 +137,17 @@ verbosityLevel = vLevel . verbosityFlags
 verbosityChosenOutputHandle :: Verbosity -> Handle
 verbosityChosenOutputHandle verb =
   if isVerboseStderr (verbosityFlags verb)
-    then vStderrHandle $ verbosityHandles verb
-    else vStdoutHandle $ verbosityHandles verb
+    then vCabalStderr $ verbosityHandles verb
+    else vCabalStdout $ verbosityHandles verb
 
 -- | The verbosity handle used for error output.
 verbosityErrorHandle :: Verbosity -> Handle
-verbosityErrorHandle = vStderrHandle . verbosityHandles
+verbosityErrorHandle = vCabalStderr . verbosityHandles
 
 setVerbosityHandles :: Maybe Handle -> Verbosity -> Verbosity
 setVerbosityHandles Nothing v = v
 setVerbosityHandles (Just h) v =
-  v{verbosityHandles = VerbosityHandles{vStdoutHandle = h, vStderrHandle = h}}
+  v{verbosityHandles = VerbosityHandles{vCabalStdout = h, vCabalStderr = h, vGHCOutput = vGHCOutput (verbosityHandles v)}}
 
 mkVerbosity :: VerbosityHandles -> VerbosityFlags -> Verbosity
 mkVerbosity handles flags =
@@ -168,7 +170,7 @@ instance Structured VerbosityFlags
 -- Hand-written instances, because there are no NFData/Structured instances
 -- for Handle.
 instance NFData VerbosityHandles where
-  rnf (VerbosityHandles o e) = o `seq` e `seq` ()
+  rnf (VerbosityHandles o e ghcO) = o `seq` e `seq` ghcO `seq` ()
 instance Structured VerbosityHandles where
   structure _ =
     Structure
@@ -179,6 +181,7 @@ instance Structured VerbosityHandles where
         ( "VerbosityHandles"
         ,
           [ nominalStructure $ Proxy @Handle
+          , nominalStructure $ Proxy @Handle
           , nominalStructure $ Proxy @Handle
           ]
         )

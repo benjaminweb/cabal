@@ -442,6 +442,7 @@ progressMessage verbosity phase subject = do
         "Starting     "
       ProgressBuilding ->
         "Building     "
+        -- GHCEvent subject (MovedToCompilingNextModule moduleName 0 totalCount)
       ProgressHaddock ->
         "Haddock      "
       ProgressInstalling ->

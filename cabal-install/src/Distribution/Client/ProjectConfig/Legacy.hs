@@ -988,6 +988,7 @@ convertToLegacySharedConfig
           , installDest = Flag NoCopyDest
           , installDryRun = projectConfigDryRun
           , installOnlyDownload = projectConfigOnlyDownload
+          , installProgressBar = mempty -- TODO: is this mempty correct here??
           , installReinstall = mempty -- projectConfigReinstall,
           , installAvoidReinstalls = mempty -- projectConfigAvoidReinstalls,
           , installOverrideReinstall = mempty -- projectConfigOverrideReinstall,

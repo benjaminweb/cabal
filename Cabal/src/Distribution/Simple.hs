@@ -337,7 +337,7 @@ defaultMainHelperWithHandles verbHandles hooks args =
           CommandErrors errs -> printErrors errs
           CommandReadyToGo action -> action globalFlags
   where
-    outHandle = vStdoutHandle verbHandles
+    outHandle = vCabalStdout verbHandles
     printHelp help = getProgName >>= hPutStr outHandle . help
     printOptionsList = hPutStr outHandle . unlines
     printErrors errs = do

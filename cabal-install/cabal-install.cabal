@@ -232,6 +232,7 @@ library
         Distribution.Client.Types.WriteGhcEnvironmentFilesPolicy
         Distribution.Client.Upload
         Distribution.Client.Utils
+        Distribution.Client.Utils.Handle
         Distribution.Client.Utils.Json
         Distribution.Client.Utils.Newtypes
         Distribution.Client.Utils.Parsec

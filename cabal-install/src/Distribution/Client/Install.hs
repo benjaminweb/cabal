@@ -57,6 +57,7 @@ import System.IO
   ( IOMode (AppendMode)
   , hClose
   , openFile
+  , Handle
   )
 import System.IO.Error
   ( ioeGetFileName
@@ -146,6 +147,9 @@ import Distribution.Client.Utils
   , logDirChange
   , mergeBy
   , progressMessage
+  )
+import Distribution.Client.Utils.Handle
+  ( withTee
   )
 import Distribution.Package
   ( HasMungedPackageId (..)
@@ -2062,23 +2066,29 @@ installUnpackedPackage
             removeFileForcibly logFileName
             return (Just logFileName)
 
+      phaseSinks :: Maybe Handle -> [(Handle, Bool)]
+      phaseSinks mLog =
+        let dest = vGHCOutput (verbosityHandles verbosity)
+        in (dest, True) : maybe [] ((: []) . (, False)) mLog
+
       setup cmd getCommonFlags flags mLogPath =
         Exception.bracket
           (traverse (`openFile` AppendMode) mLogPath)
           (traverse_ hClose)
           ( \logFileHandle ->
-              setupWrapper
-                (setVerbosityHandles logFileHandle verbosity)
-                scriptOptions
-                  { useLoggingHandle = logFileHandle
-                  , useWorkingDir = makeSymbolicPath <$> workingDir
-                  }
-                (Just pkg)
-                cmd
-                getCommonFlags
-                flags
-                (const [])
-                NotInLibrary
+              withTee dispname (phaseSinks logFileHandle) $ \phaseWriteHndl ->
+                setupWrapper
+                  (setVerbosityHandles logFileHandle verbosity)
+                  scriptOptions
+                    { useLoggingHandle = Just phaseWriteHndl
+                    , useWorkingDir = makeSymbolicPath <$> workingDir
+                    }
+                  (Just pkg)
+                  cmd
+                  getCommonFlags
+                  flags
+                  (const [])
+                  NotInLibrary
           )
 
 -- helper

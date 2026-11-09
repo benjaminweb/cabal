@@ -2217,6 +2217,7 @@ data InstallFlags = InstallFlags
   , installDest :: Flag Cabal.CopyDest
   , installDryRun :: Flag Bool
   , installOnlyDownload :: Flag Bool
+  , installProgressBar :: Flag Bool
   , installMaxBackjumps :: Flag Int
   , installReorderGoals :: Flag ReorderGoals
   , installCountConflicts :: Flag CountConflicts
@@ -2264,6 +2265,7 @@ defaultInstallFlags =
     , installDest = Flag Cabal.NoCopyDest
     , installDryRun = Flag False
     , installOnlyDownload = Flag False
+    , installProgressBar = Flag False
     , installMaxBackjumps = Flag defaultMaxBackjumps
     , installReorderGoals = Flag (ReorderGoals False)
     , installCountConflicts = Flag (CountConflicts True)
@@ -2604,6 +2606,13 @@ installOptions showOrParseArgs =
       installOnlyDownload
       (\v flags -> flags{installOnlyDownload = v})
       trueArg
+  , option
+      []
+      ["progress-bar"]
+      "Display progress bar."
+      installProgressBar
+      (\v flags -> flags{installProgressBar = v})
+      (yesNoOpt showOrParseArgs)
   , option
       ""
       ["target-package-db"]

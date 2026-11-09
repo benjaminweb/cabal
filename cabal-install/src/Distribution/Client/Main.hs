@@ -170,6 +170,7 @@ import Distribution.Client.Utils
   ( determineNumJobs
   , relaxEncodingErrors
   )
+import Distribution.Client.Utils.Handle (withProgressBar)
 import Distribution.Client.Version
   ( cabalInstallGitInfo
   , cabalInstallVersion
@@ -910,22 +911,29 @@ installAction
       -- future.
       progdb' <- configureAllKnownPrograms verb progdb
 
+      -- TODO: factor this out to Distribution.Client.Utils.Handle ?
+      let withProgress action =
+            case flagToMaybe (installProgressBar installFlags') of
+              Just True -> withProgressBar verb action
+              _         -> action verb
+
       withRepoContext verb globalFlags' $ \repoContext ->
-        install
-          verb
-          (interpretPackageDBStack Nothing (configPackageDB' configFlags'))
-          repoContext
-          comp
-          platform
-          progdb'
-          globalFlags'
-          configFlags'
-          configExFlags'
-          installFlags'
-          haddockFlags'
-          testFlags'
-          benchmarkFlags'
-          targets
+        withProgress $ \verb' -> 
+          install
+            verb'
+            (interpretPackageDBStack Nothing (configPackageDB' configFlags'))
+            repoContext
+            comp
+            platform
+            progdb'
+            globalFlags'
+            configFlags'
+            configExFlags'
+            installFlags'
+            haddockFlags'
+            testFlags'
+            benchmarkFlags'
+            targets
     where
       -- '--run-tests' implies '--enable-tests'.
       maybeForceTests installFlags' configFlags' =

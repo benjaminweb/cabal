@@ -414,6 +414,7 @@ instance Semigroup SavedConfig where
           , installHaddockIndex = combine installHaddockIndex
           , installDryRun = combine installDryRun
           , installOnlyDownload = combine installOnlyDownload
+          , installProgressBar = combine installProgressBar
           , installDest = combine installDest
           , installMaxBackjumps = combine installMaxBackjumps
           , installReorderGoals = combine installReorderGoals

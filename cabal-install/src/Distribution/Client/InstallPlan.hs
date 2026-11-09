@@ -974,7 +974,7 @@ execute jobCtl keepGoing depFailure plan installPkg =
               | pkg <- newpkgs
               ]
             waitForTasks results tasksFailed processing
-
+    
     waitForTasks
       :: Key srcpkg ~ key
       => BuildOutcomes key failure result

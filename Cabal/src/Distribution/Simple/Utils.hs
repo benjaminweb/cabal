@@ -1043,8 +1043,8 @@ compatWithCreateProcess verbosity cp action =
           `elem` [ stdin
                  , stdout
                  , stderr
-                 , vStdoutHandle (verbosityHandles verbosity)
-                 , vStderrHandle (verbosityHandles verbosity)
+                 , vCabalStdout (verbosityHandles verbosity)
+                 , vCabalStderr (verbosityHandles verbosity)
                  ] -- Don't close the verbosity handles!
         =
           return ()
