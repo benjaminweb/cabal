@@ -913,9 +913,11 @@ installAction
 
       -- TODO: factor this out to Distribution.Client.Utils.Handle ?
       let withProgress action =
-            case flagToMaybe (installProgressBar installFlags') of
-              Just True -> withProgressBar verb action
-              _         -> action verb
+            let flag = installProgressBar installFlags'
+            in trace ("[dbg0] flag = " ++ show flag) $
+              case flagToMaybe (installProgressBar installFlags') of
+                Just True -> withProgressBar verb action
+                _         -> action verb
 
       withRepoContext verb globalFlags' $ \repoContext ->
         withProgress $ \verb' -> 

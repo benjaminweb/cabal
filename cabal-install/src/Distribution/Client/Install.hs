@@ -2069,6 +2069,7 @@ installUnpackedPackage
       phaseSinks :: Maybe Handle -> [(Handle, Bool)]
       phaseSinks mLog =
         let dest = vGHCOutput (verbosityHandles verbosity)
+            _ = trace ("[dbg-t] phaseSinks dest = " ++ show dest) ()
         in (dest, True) : maybe [] ((: []) . (, False)) mLog
 
       setup cmd getCommonFlags flags mLogPath =

@@ -1,8 +1,7 @@
 module Distribution.Client.Utils.Handle
- ( withTee
- , withPipeFor
- , withProgressBar
- ) where
+  ( withPipeFor
+  , withTee
+  ) where
 
 import Control.Concurrent.Async  (withAsync, waitCatch)
 import Control.Exception         (finally, onException)
@@ -12,6 +11,7 @@ import System.IO
   ( BufferMode (LineBuffering)
   , Handle
   , hClose, hGetLine, hIsEOF, hPutStrLn, hSetBuffering
+  , stderr
   )
 import System.IO.Error           (catchIOError)
 import System.Process            (createPipe)
@@ -23,6 +23,31 @@ import Distribution.Verbosity
   , verbosityFlags
   , verbosityHandles
   )
+
+-- | Run @action@ with the write end of a freshly-created pipe whose
+-- read end is consumed by @consumer@.
+--
+-- The write end is closed when @action@ returns (or throws), signalling
+-- EOF to the consumer. On the success path the consumer is joined
+-- before control returns, so every byte written by @action@ has been
+-- processed by @consumer@ by the time this function returns.
+--
+-- @action@ must not close the write end itself.
+withPipeFor :: (Handle -> IO ()) -> (Handle -> IO a) -> IO a
+withPipeFor consumer action = do
+  (readHndl, writeHndl) <- createPipe
+  hSetBuffering readHndl LineBuffering
+  let run = withAsync (consumer readHndl) $ \reader -> do
+              let finish = closeQuietly writeHndl >> void (waitCatch reader)
+              result <- action writeHndl `onException` finish
+              finish
+              return result
+  run `finally` closeQuietly readHndl
+  
+-- | Run @action@ with the write end of a pipe whose read end is
+-- forwarded line-by-line to every sink.
+withTee :: String -> [(Handle, Bool)] -> (Handle -> IO a) -> IO a
+withTee pkgname sinks = withPipeFor $ \h -> forwardLines pkgname h sinks
 
 -- | Close a handle, ignoring any 'IOError' (e.g. the handle is already
 -- closed). Safe to use in cleanup paths where raising a fresh exception
@@ -50,43 +75,3 @@ forwardLines pkgname h sinks = loop
         hGetLine h >>= writeToAll pkgname sinks
         loop
 
--- | Run @action@ with the write end of a freshly-created pipe whose
--- read end is consumed by @consumer@.
---
--- The write end is closed when @action@ returns (or throws), signalling
--- EOF to the consumer. On the success path the consumer is joined
--- before control returns, so every byte written by @action@ has been
--- processed by @consumer@ by the time this function returns.
---
--- @action@ must not close the write end itself.
-withPipeFor :: (Handle -> IO ()) -> (Handle -> IO a) -> IO a
-withPipeFor consumer action = do
-  (readHndl, writeHndl) <- createPipe
-  hSetBuffering readHndl LineBuffering
-  let run = withAsync (consumer readHndl) $ \reader -> do
-              let finish = closeQuietly writeHndl >> void (waitCatch reader)
-              result <- action writeHndl `onException` finish
-              finish
-              return result
-  run `finally` closeQuietly readHndl
-  
--- | Run @action@ with the write end of a pipe whose read end is
--- forwarded line-by-line to every sink.
-withTee :: String -> [(Handle, Bool)] -> (Handle -> IO a) -> IO a
-withTee pkgname sinks = withPipeFor $ \h -> forwardLines pkgname h sinks
-
-withProgressBar :: Verbosity -> (Verbosity -> IO a) -> IO a
-withProgressBar verbosity0 k =
-  withPipeFor (forwardTo (vGHCOutput (verbosityHandles verbosity0))) $ \ghcWrite ->
-    k $ mkVerbosity
-          ((verbosityHandles verbosity0) { vGHCOutput = ghcWrite })
-          (verbosityFlags verbosity0)
-  where
-    forwardTo dest h = do
-      let loop = do
-            eof <- hIsEOF h
-            unless eof $ do
-              line <- hGetLine h
-              hPutStrLn dest line `catchIOError` \_ -> return ()
-              loop
-      loop

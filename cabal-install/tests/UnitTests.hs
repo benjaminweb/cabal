@@ -91,6 +91,9 @@ main = do
           "UnitTests.Distribution.Client.UserConfig"
           UnitTests.Distribution.Client.UserConfig.tests
       , testGroup
+          "UnitTests.Distribution.Client.Progress"
+          UnitTests.Distribution.Client.Progress.tests
+      , testGroup
           "UnitTests.Distribution.Solver.Modular.Builder"
           UnitTests.Distribution.Solver.Modular.Builder.tests
       , testGroup
