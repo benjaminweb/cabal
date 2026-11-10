@@ -6,7 +6,7 @@ import Test.Tasty.HUnit
 
 import Data.Either      (isLeft)
 import Data.Maybe       (isJust)
-import System.IO        (hGetLine, hPutStrLn, hClose, openTempFile, hSetBuffering, BufferMode (LineBuffering))
+import System.IO        (hGetLine, hPutStrLn, hPutStr, hClose, openTempFile, hSetBuffering, BufferMode (LineBuffering))
 import System.Directory (getTemporaryDirectory, removeFile) 
 import System.Timeout   (timeout)
 import System.Process   (createPipe)
@@ -312,12 +312,12 @@ renderStateTests = testGroup "renderState"
       cc <- readTVarIO (pComponentsCompiling progress)
       let ls = renderState cc (completedCount cc) 2
       length ls @?= 2
-  , testCase "ComponentDone → total + completed line" $ do
+  , testCase "ComponentDone → hidden (just total line)" $ do
       progress <- initProgress 1
       atomically $ makingProgress progress (ProgressEvent (mkPkgId "text-2.0.2") ComponentDone)
       cc <- readTVarIO (pComponentsCompiling progress)
       let lines = renderState cc (completedCount cc) 1
-      length lines @?= 2
+      length lines @?= 1
   ]
 
 drawOnceTests :: TestTree

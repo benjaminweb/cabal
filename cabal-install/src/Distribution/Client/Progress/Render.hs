@@ -32,8 +32,11 @@ redraw h prevLines newLines = do
 
 renderState :: ComponentsCompiling -> Int -> Int -> [Text]
 renderState cc@ComponentsCompiling{..} donePkgs totalPkgs =
-  totalLine defaultColumnWidths donePkgs totalPkgs
-    : componentLines (M.toList ccComponentEvents)
+  let 
+      -- Filter out ComponentDone so they vanish from the UI once finished
+      activeEvents = filter (\(_, ev) -> ev /= ComponentDone) (M.toList ccComponentEvents)
+  in totalLine defaultColumnWidths donePkgs totalPkgs
+       : componentLines activeEvents
 
 data ProgressBarConfig =
      ProgressBarConfig { pbcWidth            :: Int  -- ^ Width in characters on terminal.

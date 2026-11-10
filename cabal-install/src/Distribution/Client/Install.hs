@@ -60,6 +60,8 @@ import System.IO
   , hClose
   , openFile
   , Handle
+  , hPutStr
+  , hPutStrLn
   )
 import System.IO.Error
   ( ioeGetFileName
@@ -1614,11 +1616,12 @@ executeInstallPlan verbosity jobCtl keepGoing useLogFile plan0 installPkg =
             Nothing -> return ()
             Just (mkLogFileName, _) -> do
               let logName = mkLogFileName pkgid uid
-              putStr $ "Build log ( " ++ logName ++ " ):\n"
-              printFile logName
+                  hErr    = vCabalStderr (verbosityHandles verbosity)
+              hPutStrLn hErr $ "Build log ( " ++ logName ++ " ):\n"
+              printFile hErr logName
 
-    printFile :: FilePath -> IO ()
-    printFile path = readFile path >>= putStr
+    printFile :: Handle -> FilePath -> IO ()
+    printFile h path = readFile path >>= hPutStr h
 
 -- | Call an installer for an 'SourcePackage' but override the configure
 -- flags with the ones given by the 'ReadyPackage'. In particular the
