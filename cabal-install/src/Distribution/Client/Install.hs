@@ -32,6 +32,8 @@ import Distribution.Client.Compat.Prelude
 import Distribution.Utils.Generic (safeLast)
 import Prelude ()
 
+import qualified Data.Text as T
+
 import Control.Exception as Exception
   ( Handler (Handler)
   , bracket
@@ -100,6 +102,7 @@ import qualified Distribution.Client.InstallSymlink as InstallSymlink
   ( symlinkBinaries
   )
 import Distribution.Client.JobControl
+import Distribution.Client.Progress (withProgressBar)
 import Distribution.Client.Setup
   ( ConfigExFlags (..)
   , ConfigFlags (..)
@@ -266,6 +269,7 @@ import Distribution.Types.PackageVersionConstraint
   ( PackageVersionConstraint (..)
   , thisPackageVersionConstraint
   )
+import Distribution.Types.Progress (ComponentEvent(..), ProgressEvent(..))
 import Distribution.Utils.NubList
 import Distribution.Verbosity
 import Distribution.Version
@@ -1346,6 +1350,47 @@ symlinkBinaries
     where
       bindir = fromFlag (installSymlinkBinDir installFlags)
 
+printFailureReason :: BuildFailure -> String
+printFailureReason reason = case reason of
+  GracefulFailure msg -> msg
+  DependentFailed pkgid ->
+    " depends on "
+      ++ prettyShow pkgid
+      ++ " which failed to install."
+  DownloadFailed e ->
+    " failed while downloading the package."
+      ++ showException e
+  UnpackFailed e ->
+    " failed while unpacking the package."
+      ++ showException e
+  ConfigureFailed e ->
+    " failed during the configure step."
+      ++ showException e
+  BuildFailed e ->
+    " failed during the building phase."
+      ++ showException e
+  TestsFailed e ->
+    " failed during the tests phase."
+      ++ showException e
+  InstallFailed e ->
+    " failed during the final install step."
+      ++ showException e
+  -- This will never happen, but we include it for completeness
+  PlanningFailed -> " failed during the planning phase."
+
+showException :: SomeException -> String
+showException e = " The exception was:\n  " ++ show e ++ maybeOOM e
+  where
+    #ifdef mingw32_HOST_OS
+        maybeOOM _        = ""
+    #else
+        maybeOOM e                    = maybe "" onExitFailure (fromException e)
+        onExitFailure (ExitFailure n)
+          | n == 9 || n == -9         =
+          "\nThis may be due to an out-of-memory condition."
+        onExitFailure _               = ""
+    #endif
+
 printBuildFailures :: Verbosity -> BuildOutcomes -> IO ()
 printBuildFailures verbosity buildOutcomes =
   case [ (pkgid, failure)
@@ -1356,44 +1401,6 @@ printBuildFailures verbosity buildOutcomes =
       dieWithException verbosity $
         SomePackagesFailedToInstall $
           map (bimap prettyShow printFailureReason) failed
-  where
-    printFailureReason reason = case reason of
-      GracefulFailure msg -> msg
-      DependentFailed pkgid ->
-        " depends on "
-          ++ prettyShow pkgid
-          ++ " which failed to install."
-      DownloadFailed e ->
-        " failed while downloading the package."
-          ++ showException e
-      UnpackFailed e ->
-        " failed while unpacking the package."
-          ++ showException e
-      ConfigureFailed e ->
-        " failed during the configure step."
-          ++ showException e
-      BuildFailed e ->
-        " failed during the building phase."
-          ++ showException e
-      TestsFailed e ->
-        " failed during the tests phase."
-          ++ showException e
-      InstallFailed e ->
-        " failed during the final install step."
-          ++ showException e
-      -- This will never happen, but we include it for completeness
-      PlanningFailed -> " failed during the planning phase."
-
-    showException e = " The exception was:\n  " ++ show e ++ maybeOOM e
-#ifdef mingw32_HOST_OS
-    maybeOOM _        = ""
-#else
-    maybeOOM e                    = maybe "" onExitFailure (fromException e)
-    onExitFailure (ExitFailure n)
-      | n == 9 || n == -9         =
-      "\nThis may be due to an out-of-memory condition."
-    onExitFailure _               = ""
-#endif
 
 -- ------------------------------------------------------------
 
@@ -1441,42 +1448,48 @@ performInstallations
     fetchLimit <- newJobLimit (min numJobs maxNumFetchJobs)
     installLock <- newLock -- serialise installation
     cacheLock <- newLock -- serialise access to setup exe cache
-    executeInstallPlan
-      verbosity
-      jobControl
-      keepGoing
-      useLogFile
-      installPlan
-      $ \rpkg ->
-        installReadyPackage
-          platform
-          cinfo
-          configFlags
-          rpkg
-          $ \configFlags' src pkg pkgoverride ->
-            fetchSourcePackage verbosity repoCtxt fetchLimit src $ \src' ->
-              installLocalPackage verbosity (packageId pkg) src' distPref $ \mpath ->
-                installUnpackedPackage
-                  verbosity
-                  installLock
-                  numJobs
-                  ( setupScriptOptions
-                      installedPkgIndex
-                      cacheLock
-                      rpkg
-                  )
-                  configFlags'
-                  installFlags
-                  haddockFlags
-                  testFlags
-                  comp
-                  progdb
-                  platform
-                  pkg
-                  rpkg
-                  pkgoverride
-                  mpath
-                  useLogFile
+    let totalComponents = length $ fst (InstallPlan.ready installPlan)
+        runInstall verb' =
+          executeInstallPlan
+            verb'
+            jobControl
+            keepGoing
+            useLogFile
+            installPlan
+            $ \rpkg ->
+              installReadyPackage
+                platform
+                cinfo
+                configFlags
+                rpkg
+                $ \configFlags' src pkg pkgoverride ->
+                  fetchSourcePackage verb' repoCtxt fetchLimit src $ \src' ->
+                    installLocalPackage verb' (packageId pkg) src' distPref $ \mpath ->
+                      installUnpackedPackage
+                        verb'
+                        installLock
+                        numJobs
+                        ( setupScriptOptions
+                            installedPkgIndex
+                            cacheLock
+                            rpkg
+                        )
+                        configFlags'
+                        installFlags
+                        haddockFlags
+                        testFlags
+                        comp
+                        progdb
+                        platform
+                        pkg
+                        rpkg
+                        pkgoverride
+                        mpath
+                        useLogFile
+
+    case flagToMaybe (installProgressBar installFlags) of
+      Just True -> withProgressBar verbosity totalComponents runInstall
+      _         -> runInstall verbosity
     where
       cinfo = compilerInfo comp
 
@@ -1588,8 +1601,13 @@ executeInstallPlan verbosity jobCtl keepGoing useLogFile plan0 installPkg =
     -- otherwise.
     printBuildResult :: PackageId -> UnitId -> BuildOutcome -> IO ()
     printBuildResult pkgid uid buildOutcome = case buildOutcome of
-      (Right _) -> progressMessage verbosity ProgressCompleted (prettyShow pkgid)
-      (Left _) -> do
+      (Right _) -> do
+        for_ (vProgressSink (verbosityHandles verbosity)) $ \sink ->
+          sink (ProgressEvent pkgid ComponentDone)
+        progressMessage verbosity ProgressCompleted (prettyShow pkgid)
+      (Left failure) -> do
+        for_ (vProgressSink (verbosityHandles verbosity)) $ \sink ->
+          sink (ProgressEvent pkgid (ComponentFailed (T.pack $ printFailureReason failure)))
         notice verbosity $ "Failed to install " ++ prettyShow pkgid
         when (verbosityLevel verbosity >= Normal) $
           case useLogFile of

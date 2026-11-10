@@ -10,8 +10,11 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Maybe (mapMaybe)
+import System.IO (hFlush, stdout)
 
-import Distribution.Client.Progress.Types
+import Distribution.Types.Progress
+import Distribution.Pretty          (prettyShow)
+import Distribution.Types.PackageId (PackageIdentifier)
 
 -- | Deletes any previously drawn lines and draws the new set of lines in place.
 redraw :: Int    -- ^ Previous line count (required to be deleted before we redraw the content)
@@ -21,6 +24,7 @@ redraw prevLineCount newLines = do
   TIO.putStr $ moveCursorLinesUp prevLineCount
   TIO.putStr clearToEndOfScreen
   mapM_ TIO.putStrLn newLines
+  hFlush stdout
 
 data ProgressBarConfig =
      ProgressBarConfig { pbcWidth            :: Int  -- ^ Width in characters on terminal.
@@ -37,18 +41,18 @@ totalLine ColumnWidths {..} done total = align ToLeft cwAggregate "total " <>
                                          progressBar defaultTotalBar done total
                                         
 componentLine :: ColumnWidths
-              -> PackageName
+              -> PackageIdentifier
               -> ComponentEvent -- ^ When component has moved to compile next module or completed compilation.
               -> Maybe Text     -- ^ Component progress line.
-componentLine ColumnWidths {..} packageName ce = case ce of
-                                       CompilingModule {..} -> Just $ align ToLeft cwAggregate (packageName <> " ") <>
+componentLine ColumnWidths {..} packageId ce = case ce of
+                                       CompilingModule {..} -> Just $ align ToLeft cwAggregate (T.pack (prettyShow packageId) <> " ") <>
                                                                                ratio cwRatioDigits ceDoneCount ceTotalCount <> " " <> "   " <>
                                                                                align ToLeft cwBarOrModule ceModuleName
-                                       ComponentDone -> Nothing
+                                       ComponentDone       -> Nothing
+                                       ComponentFailed _   -> Nothing
 
-type PackageName = Text
 
-componentLines :: [(PackageName, ComponentEvent)] -> [Text]
+componentLines :: [(PackageIdentifier, ComponentEvent)] -> [Text]
 componentLines = mapMaybe (uncurry $ componentLine defaultColumnWidths)
 
 data ColumnWidths =

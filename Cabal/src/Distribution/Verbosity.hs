@@ -90,6 +90,7 @@ import Distribution.Parsec
 import Distribution.Pretty
 import Distribution.Utils.Generic (isAsciiAlpha)
 import Distribution.Verbosity.Internal
+import Distribution.Types.Progress
 
 import qualified Data.Set as Set
 import qualified Distribution.Compat.CharParsing as P
@@ -110,14 +111,16 @@ data VerbosityHandles = VerbosityHandles
   { vCabalStdout  :: Handle
   , vCabalStderr  :: Handle
   , vGHCOutput    :: Handle
+  , vProgressSink :: Maybe (ProgressEvent -> IO ())
   }
 
 defaultVerbosityHandles :: VerbosityHandles
 defaultVerbosityHandles =
   VerbosityHandles
-    { vCabalStdout = stdout
-    , vCabalStderr = stderr
-    , vGHCOutput   = stdout
+    { vCabalStdout  = stdout
+    , vCabalStderr  = stderr
+    , vGHCOutput    = stdout
+    , vProgressSink = Nothing
     }
 
 -- | Verbosity information which can be passed by the CLI.
@@ -147,7 +150,7 @@ verbosityErrorHandle = vCabalStderr . verbosityHandles
 setVerbosityHandles :: Maybe Handle -> Verbosity -> Verbosity
 setVerbosityHandles Nothing v = v
 setVerbosityHandles (Just h) v =
-  v{verbosityHandles = VerbosityHandles{vCabalStdout = h, vCabalStderr = h, vGHCOutput = vGHCOutput (verbosityHandles v)}}
+  v{verbosityHandles = VerbosityHandles{vCabalStdout = h, vCabalStderr = h, vGHCOutput = vGHCOutput (verbosityHandles v), vProgressSink = vProgressSink (verbosityHandles v)}}
 
 mkVerbosity :: VerbosityHandles -> VerbosityFlags -> Verbosity
 mkVerbosity handles flags =
@@ -170,7 +173,7 @@ instance Structured VerbosityFlags
 -- Hand-written instances, because there are no NFData/Structured instances
 -- for Handle.
 instance NFData VerbosityHandles where
-  rnf (VerbosityHandles o e ghcO) = o `seq` e `seq` ghcO `seq` ()
+  rnf (VerbosityHandles o e ghcO _) = o `seq` e `seq` ghcO `seq` ()
 instance Structured VerbosityHandles where
   structure _ =
     Structure

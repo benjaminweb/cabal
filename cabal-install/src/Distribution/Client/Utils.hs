@@ -81,6 +81,7 @@ import Distribution.Utils.Path
   , sameDirectory
   , symbolicPathRelative_maybe
   )
+import Distribution.Verbosity
 import Distribution.Version
 
 import System.Directory
@@ -431,7 +432,9 @@ data ProgressPhase
 
 progressMessage :: Verbosity -> ProgressPhase -> String -> IO ()
 progressMessage verbosity phase subject = do
-  noticeNoWrap verbosity $ phaseStr ++ subject ++ "\n"
+  case vProgressSink (verbosityHandles verbosity) of
+    Just _  -> return ()
+    Nothing -> noticeNoWrap verbosity $ phaseStr ++ subject ++ "\n"
   where
     phaseStr = case phase of
       ProgressDownloading ->

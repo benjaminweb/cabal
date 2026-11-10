@@ -1,6 +1,14 @@
-module Distribution.Client.Progress.Types where
+module Distribution.Types.Progress
+  ( ComponentEvent (..)
+  , ProgressEvent (..)
+  ) where
+
+import Distribution.Compat.Prelude
+import Prelude ()
 
 import Data.Text (Text)
+
+import Distribution.Types.PackageId (PackageIdentifier)
 
 {-
 Note [ComponentEvent]
@@ -16,7 +24,7 @@ data ComponentEvent = CompilingModule -- ^ When next module is being compiled, `
                     , ceTotalCount    :: Int   -- ^ Total module count to be compiled.
                     }
                     | ComponentDone
-                    -- TODO: implement ComponentFailed
+                    | ComponentFailed Text
                     deriving (Show, Eq)
 
 {-
@@ -27,8 +35,7 @@ Note [Two cases to model]
 
 We need the second case as GHC does not report explicitly when the last module has completed compiling.
 -}
-
-data GHCEvent =
-     GHCEvent { gePackage :: Text -- ^ Component's name.
-              , geEvent   :: ComponentEvent
-              } deriving (Show, Eq)
+data ProgressEvent = ProgressEvent
+  { pePackageId :: PackageIdentifier
+  , peEvent     :: ComponentEvent
+  } deriving (Show, Eq)

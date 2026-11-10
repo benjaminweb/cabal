@@ -1,16 +1,22 @@
 {-# LANGUAGE RecordWildCards #-}
 module Distribution.Client.Progress.Parser
  ( rectBracket
- , ghcLine
+ , ghcLineParser
+ , progressEventParser
+ , parseGhcLine
  ) where
 
 import Text.Parsec
 import Text.Parsec.Text (Parser)
 import Data.Char (isSpace)
 import qualified Data.Text as T
+import Data.Text (Text)
+import Data.Char (isAlphaNum)
 import Control.Monad (void)
 
-import Distribution.Client.Progress.Types
+import Distribution.Types.Progress
+import Distribution.Types.PackageId (PackageIdentifier)
+import Distribution.Parsec          (simpleParsec)
 
 rectBracket :: Parser (Int, Int)
 rectBracket = do
@@ -24,8 +30,8 @@ rectBracket = do
   void $ char ']'
   return (x, n)
 
-ghcLine :: Parser ComponentEvent
-ghcLine = do
+ghcLineParser :: Parser ComponentEvent
+ghcLineParser = do
   ( ceStartedCount
    , ceTotalCount ) <- rectBracket
   let ceDoneCount = ceStartedCount - 1
@@ -35,3 +41,23 @@ ghcLine = do
   ceModuleName <- T.pack <$> many1 (satisfy (not . isSpace))
   spaces
   return $ CompilingModule {..}
+
+-- | Cabal's own 'PackageIdentifier' parser, bridged into 'Text.Parsec'
+-- via 'simpleParsec'. Fails Parsec-style (so 'progressEvent' can 'fail')
+-- on invalid package identifiers.
+packageIdentifier :: Parser PackageIdentifier
+packageIdentifier = do
+  cs <- many1 (satisfy (\c -> isAlphaNum c || c == '_' || c == '-' || c == '.'))
+  case simpleParsec cs of
+    Just pid -> pure pid
+    Nothing  -> fail ("not a package identifier: " ++ cs)
+
+progressEventParser :: Parser ProgressEvent
+progressEventParser = do
+  pkgid  <- packageIdentifier
+  void $ string ": "
+  ProgressEvent pkgid <$> ghcLineParser
+
+parseGhcLine :: Text -> Maybe ProgressEvent
+parseGhcLine = either (const Nothing) Just . parse progressEventParser ""
+

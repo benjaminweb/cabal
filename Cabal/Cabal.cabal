@@ -52,6 +52,7 @@ library
     , pretty     >= 1.1.1    && < 1.2
     , process    >= 1.6.29.0 && < 1.7
     , time       >= 1.4.0.1  && < 1.17
+    , text       >= 2.0      && < 2.1.5
 
   if os(windows)
     build-depends:
@@ -180,6 +181,7 @@ library
     Distribution.Types.TargetInfo
     Distribution.Types.GivenComponent
     Distribution.Types.ParStrat
+    Distribution.Types.Progress
     Distribution.Utils.Json
     Distribution.Utils.NubList
     Distribution.Utils.Progress

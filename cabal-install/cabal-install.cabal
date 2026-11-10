@@ -181,7 +181,6 @@ library
         Distribution.Client.Progress.Render
         Distribution.Client.Progress.Runner
         Distribution.Client.Progress.State
-        Distribution.Client.Progress.Types
         Distribution.Client.ProjectBuilding
         Distribution.Client.ProjectBuilding.UnpackedPackage
         Distribution.Client.ProjectBuilding.PackageFileMonitor
@@ -388,6 +387,7 @@ test-suite unit-tests
       , parsec
       , process
       , random
+      , stm
       , tar
       , time
       , zlib

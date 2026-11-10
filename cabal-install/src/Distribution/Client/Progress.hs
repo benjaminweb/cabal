@@ -1,31 +1,65 @@
-module Distribution.Client.Progress (withProgressBar) where
+module Distribution.Client.Progress (withProgressBar, bracketProgress, progressVerbosity, drainGhc) where
 
-import Control.Monad   (unless)
-import System.IO       (hGetLine, hPutStrLn, hIsEOF, stderr, stdout)
+import Control.Monad   (unless, forM_)
+import System.IO       (Handle, hGetLine, hPutStrLn, hIsEOF, stderr, stdout)
 import System.IO.Error (catchIOError)
+import qualified Data.Text.IO as TIO
+import Control.Concurrent.Async (withAsync)
+import Control.Concurrent.STM (atomically)
+import qualified Data.Text as T
 
+import Distribution.Types.Progress
 import Distribution.Client.Progress.Parser
 import Distribution.Client.Progress.Runner
 import Distribution.Client.Progress.State
-import Distribution.Client.Progress.Types
 import Distribution.Client.Utils.Handle
 import Distribution.Verbosity
   (Verbosity, VerbosityHandles(..), mkVerbosity, verbosityFlags, verbosityHandles)
 
-withProgressBar :: Verbosity -> (Verbosity -> IO a) -> IO a
-withProgressBar verbosity0 k = do
-  hPutStrLn stderr "[dbg] withProgressBar entered"
-  withPipeFor (forwardTo (vGHCOutput (verbosityHandles verbosity0))) $ \ghcWrite -> do
-    hPutStrLn stderr ("[dbg] dest = " ++ show (vGHCOutput (verbosityHandles verbosity0)))
-    k $ mkVerbosity
-          ((verbosityHandles verbosity0) { vGHCOutput = ghcWrite })
-          (verbosityFlags verbosity0)
+-- | Run @k@ with a 'Verbosity' whose child stdout is captured into a
+-- progress bar, and whose lifecycle events update that bar.
+withProgressBar :: Verbosity -> Int -> (Verbosity -> IO a) -> IO a
+withProgressBar verbosity0 totalComponents k =
+  bracketProgress totalComponents $ \progress ->
+    withPipeFor (drainGhc progress) $ \ghcWrite ->
+      k (progressVerbosity progress verbosity0 ghcWrite)
+
+-- | Bracket the lifecycle of a progress bar: create the 'Progress' TVar,
+-- start the renderer thread, and cancel it (clearing the display via
+-- 'runner'\'s own @finally@) when the body exits — normally or by
+-- exception.
+bracketProgress :: Int -> (Progress -> IO a) -> IO a
+bracketProgress totalComponents k = do
+  progress <- initProgress totalComponents
+  withAsync (runner progress) $ \_ -> k progress
+
+-- | Rewire a 'Verbosity' so that
+--
+--   * child stdout/stderr goes into @ghcWrite@ (drained by 'drainGhc'),
+--   * cabal's lifecycle events go through 'makingProgress' on @progress@.
+--
+-- Leaves 'vhCabalNormal' / 'vhCabalError' untouched, so Cabal's own log
+-- messages keep their existing destination.
+progressVerbosity :: Progress -> Verbosity -> Handle -> Verbosity
+progressVerbosity progress verbosity0 ghcWrite =
+  let hs = (verbosityHandles verbosity0)
+      hs' = hs
+             { vGHCOutput    = ghcWrite
+             , vProgressSink = Just (atomically . makingProgress progress)
+             , vCabalStdout  = vCabalStderr hs
+             }
+  in mkVerbosity hs' (verbosityFlags verbosity0)
+
+-- | Drain the GHC pipe into @progress@, line by line, until EOF.
+drainGhc :: Progress -> Handle -> IO ()
+drainGhc progress h = loop
   where
-    forwardTo dest h = do
-      let loop = do
-            eof <- hIsEOF h
-            unless eof $ do
-              line <- hGetLine h
-              hPutStrLn dest line `catchIOError` \_ -> return ()
-              loop
-      loop
+    loop = do
+      eof <- hIsEOF h
+      unless eof $ do
+        line <- TIO.hGetLine h
+        -- hPutStrLn stderr ("[drain] " ++ T.unpack line)
+        forM_ (parseGhcLine line) $ \ge -> do
+          -- hPutStrLn stderr ("[ge] " ++ show ge)        -- ← add this
+          atomically (makingProgress progress ge)
+        loop

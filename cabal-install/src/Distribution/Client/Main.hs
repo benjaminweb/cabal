@@ -911,31 +911,22 @@ installAction
       -- future.
       progdb' <- configureAllKnownPrograms verb progdb
 
-      -- TODO: factor this out to Distribution.Client.Utils.Handle ?
-      let withProgress action =
-            let flag = installProgressBar installFlags'
-            in trace ("[dbg0] flag = " ++ show flag) $
-              case flagToMaybe (installProgressBar installFlags') of
-                Just True -> withProgressBar verb action
-                _         -> action verb
-
       withRepoContext verb globalFlags' $ \repoContext ->
-        withProgress $ \verb' -> 
-          install
-            verb'
-            (interpretPackageDBStack Nothing (configPackageDB' configFlags'))
-            repoContext
-            comp
-            platform
-            progdb'
-            globalFlags'
-            configFlags'
-            configExFlags'
-            installFlags'
-            haddockFlags'
-            testFlags'
-            benchmarkFlags'
-            targets
+        install
+          verb
+          (interpretPackageDBStack Nothing (configPackageDB' configFlags'))
+          repoContext
+          comp
+          platform
+          progdb'
+          globalFlags'
+          configFlags'
+          configExFlags'
+          installFlags'
+          haddockFlags'
+          testFlags'
+          benchmarkFlags'
+          targets
     where
       -- '--run-tests' implies '--enable-tests'.
       maybeForceTests installFlags' configFlags' =
