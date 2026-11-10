@@ -8,6 +8,7 @@ module Distribution.Client.Progress.Parser
 
 import Text.Parsec
 import Text.Parsec.Text (Parser)
+import Text.Parsec (try, (<|>))
 import Data.Char (isSpace)
 import qualified Data.Text as T
 import Data.Text (Text)
@@ -54,9 +55,15 @@ packageIdentifier = do
 
 progressEventParser :: Parser ProgressEvent
 progressEventParser = do
-  pkgid  <- packageIdentifier
+  pkgid <- packageIdentifier
   void $ string ": "
-  ProgressEvent pkgid <$> ghcLineParser
+  ev <- try ghcLineParser
+     <|> (string "Configuring"   >> pure Configuring)
+     <|> (string "Preprocessing" >> pure Configuring)
+     <|> (string "Building"      >> pure Configuring)
+     <|> (string "Installing"    >> pure Installing)
+     <|> (string "Registering"   >> pure Installing)
+  pure $ ProgressEvent pkgid ev
 
 parseGhcLine :: Text -> Maybe ProgressEvent
 parseGhcLine = either (const Nothing) Just . parse progressEventParser ""

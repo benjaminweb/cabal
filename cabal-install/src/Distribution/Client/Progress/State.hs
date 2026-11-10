@@ -13,15 +13,15 @@ data Progress =
               , pVersion                :: TVar Int
               }
 
-data ComponentsCompiling =
-     ComponentsCompiling { ccComponentEvents :: M.Map PackageIdentifier ComponentEvent -- ^ Updated states of components gets overwritten, `CompletedCompilingComponent _` effects deletion (as the component is no longer being compiled).
-                         } deriving Show
+data ComponentsCompiling = ComponentsCompiling
+  { ccComponentEvents :: M.Map PackageIdentifier ComponentEvent -- ^ Updated states of components gets overwritten, `CompletedCompilingComponent _` effects deletion (as the component is no longer being compiled).
+  , ccModuleCounts    :: M.Map PackageIdentifier Int  -- ^ Tracks the total modules for each package
+  } deriving (Show, Eq)
 
-initProgress :: Int         -- ^ Total component count.
-             -> IO Progress
+initProgress :: Int -> IO Progress
 initProgress pTotalComponentCount = do
-  pComponentsCompiling    <- newTVarIO $ ComponentsCompiling M.empty
-  pVersion                <- newTVarIO 0
+  pComponentsCompiling <- newTVarIO $ ComponentsCompiling M.empty M.empty
+  pVersion             <- newTVarIO 0
   return $ Progress {..}
 
 -- | Updates trackers for local and total progress.
@@ -52,11 +52,17 @@ updateComponentsCompiling :: ProgressEvent -> ComponentsCompiling -> ComponentsC
 updateComponentsCompiling ge@ProgressEvent{..} cc@ComponentsCompiling{..} =
   case M.lookup pePackageId ccComponentEvents of
     Just old | rank old > rank peEvent -> cc
-    _ -> cc { ccComponentEvents = M.insert pePackageId peEvent ccComponentEvents }
+    _ ->
+      let newMods = case peEvent of
+            CompilingModule _ _ total -> M.insert pePackageId total ccModuleCounts
+            _                         -> ccModuleCounts
+      in cc { ccComponentEvents = M.insert pePackageId peEvent ccComponentEvents
+            , ccModuleCounts    = newMods
+            }
 
 completedCount :: ComponentsCompiling -> Int
-completedCount (ComponentsCompiling m) =
-  M.size $ M.filter isDone m
+completedCount cc = 
+  M.size $ M.filter isDone (ccComponentEvents cc)
   where
     isDone ComponentDone       = True
     isDone (ComponentFailed _) = True

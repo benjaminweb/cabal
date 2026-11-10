@@ -16,7 +16,7 @@ import Distribution.Client.Progress.Render
 
 drawState :: Handle -> Progress -> IORef Int -> ComponentsCompiling -> IO ()
 drawState h progress linesRef cc = do
-  let newLines = renderState (ccComponentEvents cc)
+  let newLines = renderState cc 
                    (completedCount cc) (pTotalComponentCount progress)
   prev <- readIORef linesRef
   redraw h prev newLines

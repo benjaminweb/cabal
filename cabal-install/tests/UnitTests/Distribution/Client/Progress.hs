@@ -14,7 +14,7 @@ import Text.Parsec      (parse)
 import qualified Data.Map.Strict as M
 import Control.Concurrent (threadDelay)
 import Control.Concurrent.Async (async)
-import Control.Concurrent.STM  (readTVarIO, atomically, readTVarIO)
+import Control.Concurrent.STM  (readTVarIO, atomically)
 import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (try, IOException)
 import Data.IORef        (newIORef, readIORef)
@@ -40,18 +40,17 @@ import Distribution.Verbosity
   , verbosityHandles
   )
 
--- | Build a 'PackageIdentifier' from a string, failing loudly if the
--- string is not valid. Only for use in tests, where the input is a
--- literal known to be correct at the time of writing.
 mkPkgId :: String -> PackageIdentifier
 mkPkgId s = case simpleParsec s of
   Just p  -> p
   Nothing -> error ("test setup: bad package id " ++ s)
 
 tests :: [TestTree]
-tests = [testGroup "Distribution.Client.Progress" [ progress, parser, withProgressBarParts, tvTests, stickyTests, completedCountTests
-                                                  , progressVerbosityTests, componentLineTests, drainGhcTests, ansiTests, renderStateTests
-                                                  , drawOnceTests, runnerTests, withPipeForTests, withTeeTests]] 
+tests = [testGroup "Distribution.Client.Progress" 
+  [ progress, parser, withProgressBarParts, tvTests, stickyTests, completedCountTests
+  , progressVerbosityTests, componentLineTests, drainGhcTests, ansiTests, renderStateTests
+  , drawOnceTests, runnerTests, withPipeForTests, withTeeTests
+  ]] 
 
 progress = testGroup "progress lib"
  [ testCase "filledSegments computes scaled filled count correctly" $ do
@@ -67,56 +66,48 @@ parser = testGroup "ghc line parser"
     parse rectBracket "" "[1 of 3]"   @?= Right (1,3)
     parse rectBracket "" "[1 of 99]"  @?= Right (1,99)
     parse rectBracket "" "[22 of 99]" @?= Right (22,99)
-  -- testCase "parseGHCLine" $ do
-     -- parseGHCLine "[1 of 3] Compiling Some.Fancy.Module.Name" @?= Just "MovedToCompileNextModule "
-  , testCase "ghcLineParser parses lines correctly: [1 of 3]" $ do
+ , testCase "ghcLineParser parses lines correctly: [1 of 3]" $ do
       parse ghcLineParser "" "[1 of 3] Compiling Some.Fancy.Module other"
       @?= Right (CompilingModule {ceDoneCount = 0, ceTotalCount = 3, ceModuleName = "Some.Fancy.Module"})
-  , testCase "ghcLineParser parses lines correctly: [3 of 3]" $ do
+ , testCase "ghcLineParser parses lines correctly: [3 of 3]" $ do
       parse ghcLineParser "" "[3 of 3] Compiling Some.Fancy.Module other"
       @?= Right (CompilingModule {ceDoneCount = 2, ceTotalCount = 3, ceModuleName = "Some.Fancy.Module"})
-  , testCase "progressEvent parses full line" $
+ , testCase "progressEvent parses full line" $
       parse progressEventParser "" "text-2.0.2: [2 of 5] Compiling Data.Text ( src, obj )"
       @?= Right (ProgressEvent
                    (mkPkgId "text-2.0.2")
                    (CompilingModule "Data.Text" 1 5))
-  , testCase "progressEventParser rejects bad package prefix" $
+ , testCase "progressEventParser parses Configuring" $
+      parse progressEventParser "" "text-2.0.2: Configuring text-2.0.2..."
+      @?= Right (ProgressEvent (mkPkgId "text-2.0.2") Configuring)
+ , testCase "progressEventParser parses Installing" $
+      parse progressEventParser "" "text-2.0.2: Installing library in ..."
+      @?= Right (ProgressEvent (mkPkgId "text-2.0.2") Installing)
+ , testCase "progressEventParser rejects bad package prefix" $
       isLeft (parse progressEventParser "" "bad pkg!: [1 of 1] Compiling Foo ( … )")
       @? "expected Left"
-  , testCase "progressEventParser rejects Linking" $
+ , testCase "progressEventParser rejects Linking" $
       isLeft (parse progressEventParser "" "text-2.0.2: Linking foo")
       @? "expected Left"
-  , testCase "parseGhcLine collapses all failures to Nothing" $ do
+ , testCase "parseGhcLine collapses failures to Nothing" $ do
       parseGhcLine "text-2.0.2: Linking foo"   @?= Nothing
       parseGhcLine "no colon"                  @?= Nothing
       parseGhcLine ""                          @?= Nothing
-  , testCase "parseGhcLine: real line with dotted version" $
+ , testCase "parseGhcLine: real line with dotted version" $
       parseGhcLine "indexed-traversable-0.1.5: [1 of 7] Compiling CoerceCompat     ( src/CoerceCompat.hs, dist/build/CoerceCompat.o, dist/build/CoerceCompat.dyn_o )"
       @?= Just (ProgressEvent
                   (mkPkgId "indexed-traversable-0.1.5")
                   (CompilingModule "CoerceCompat" 0 7))
-  , testCase "progressEventParser parses [2 of 5]" $
-      parse progressEventParser "" "text-2.0.2: [2 of 5] Compiling Data.Text ( src, obj )"
-        @?= Right (ProgressEvent
-                     (mkPkgId "text-2.0.2")
-                     (CompilingModule "Data.Text" 1 5))
-  , testCase "ghcLineParser handles GHC's space-padded counter" $
+ , testCase "ghcLineParser handles GHC's space-padded counter" $
       parse ghcLineParser "" "[ 1 of 14] Compiling Foo ( src, obj )"
         @?= Right (CompilingModule "Foo" 0 14)
-  , testCase "parseGhcLine: multi-hyphen package name" $
+ , testCase "parseGhcLine: multi-hyphen package name" $
       isJust (parseGhcLine "haskell-src-exts-1.24.0: [1 of 5] Compiling Foo ( src, obj )")
         @? "expected Just"
-  , testCase "parseGhcLine: four-component version" $
+ , testCase "parseGhcLine: four-component version" $
       isJust (parseGhcLine "foo-1.2.3.4: [1 of 3] Compiling Foo ( src, obj )")
         @? "expected Just"
-  , testCase "parseGhcLine rejects Linking" $
-      isLeft (parse progressEventParser "" "text-2.0.2: Linking foo")
-        @? "expected Left"
-  , testCase "parseGhcLine collapses all failures to Nothing" $ do
-      parseGhcLine "text-2.0.2: Linking foo" @?= Nothing
-      parseGhcLine "no colon"                @?= Nothing
-      parseGhcLine ""                        @?= Nothing
-   ]
+ ]
 
 withProgressBarParts = testGroup "withProgressBar tests"
   [ testCase "redirects vCabalStdout to stderr, preserves vCabalStderr and installs sink/pipe" $ do
@@ -126,8 +117,8 @@ withProgressBarParts = testGroup "withProgressBar tests"
           v'  = progressVerbosity progress v0 w
           hs0 = verbosityHandles v0
           hs' = verbosityHandles v'
-      vCabalStdout hs' @?= vCabalStderr hs0   -- redirected, not preserved
-      vCabalStderr hs' @?= vCabalStderr hs0   -- preserved
+      vCabalStdout hs' @?= vCabalStderr hs0
+      vCabalStderr hs' @?= vCabalStderr hs0
       vGHCOutput   hs' @?= w
       isJust (vProgressSink hs') @? "sink installed"
       hClose r >> hClose w
@@ -135,7 +126,7 @@ withProgressBarParts = testGroup "withProgressBar tests"
       progress <- initProgress 1
       (r, w) <- createPipe
       hPutStrLn w "text-2.0.2: [2 of 5] Compiling Data.Text.Internal ( src, obj )"
-      hPutStrLn w "text-2.0.2: Linking something"     -- unparseable, ignored
+      hPutStrLn w "text-2.0.2: Linking something"
       hClose w
       drainGhc progress r
       hClose r
@@ -156,7 +147,7 @@ withProgressBarParts = testGroup "withProgressBar tests"
 
 tvTests :: TestTree
 tvTests = testGroup "TVar storage"
-  [ testCase "CompilingModule lands in the map" $ do
+  [ testCase "CompilingModule lands in the map and updates ccModuleCounts" $ do
       progress <- initProgress 3
       let Just ev = parseGhcLine "text-2.0.2: [2 of 5] Compiling Data.Text ( src, obj )"
       atomically $ makingProgress progress ev
@@ -164,7 +155,7 @@ tvTests = testGroup "TVar storage"
       case M.lookup (pePackageId ev) (ccComponentEvents cc) of
         Just (CompilingModule "Data.Text" 1 5) -> pure ()
         other -> assertFailure ("unexpected: " ++ show other)
-
+      M.lookup (pePackageId ev) (ccModuleCounts cc) @?= Just 5
   , testCase "successive CompilingModule events overwrite the entry" $ do
       progress <- initProgress 3
       let Just ev1 = parseGhcLine "text-2.0.2: [1 of 5] Compiling Data.Text.Internal ( src, obj )"
@@ -174,7 +165,6 @@ tvTests = testGroup "TVar storage"
       cc <- readTVarIO (pComponentsCompiling progress)
       M.lookup (pePackageId ev2) (ccComponentEvents cc)
         @?= Just (CompilingModule "Data.Text" 1 5)
-
   , testCase "ComponentDone overwrites CompilingModule" $ do
       progress <- initProgress 1
       let Just ev1 = parseGhcLine "text-2.0.2: [5 of 5] Compiling Data.Text ( src, obj )"
@@ -192,67 +182,53 @@ stickyTests = testGroup "sticky ComponentDone/Failed"
       let pid      = mkPkgId "text-2.0.2"
           Just ev  = parseGhcLine "text-2.0.2: [5 of 5] Compiling Data.Text ( src, obj )"
       atomically $ makingProgress progress (ProgressEvent pid ComponentDone)
-      atomically $ makingProgress progress ev      -- late drain write
+      atomically $ makingProgress progress ev
       cc <- readTVarIO (pComponentsCompiling progress)
       M.lookup pid (ccComponentEvents cc) @?= Just ComponentDone
-
+  , testCase "Building after CompilingModule is ignored" $ do
+      progress <- initProgress 1
+      let pid      = mkPkgId "text-2.0.2"
+          Just ev  = parseGhcLine "text-2.0.2: [3 of 5] Compiling Data.Text ( src, obj )"
+      atomically $ makingProgress progress ev
+      atomically $ makingProgress progress (ProgressEvent pid Building)
+      cc <- readTVarIO (pComponentsCompiling progress)
+      M.lookup pid (ccComponentEvents cc) @?= Just (CompilingModule "Data.Text" 2 5)
   , testCase "CompilingModule after ComponentFailed is ignored" $ do
       progress <- initProgress 1
       let pid      = mkPkgId "text-2.0.2"
           Just ev  = parseGhcLine "text-2.0.2: [3 of 5] Compiling Data.Text ( src, obj )"
-      atomically $ makingProgress progress
-        (ProgressEvent pid (ComponentFailed "boom"))
+      atomically $ makingProgress progress (ProgressEvent pid (ComponentFailed "boom"))
       atomically $ makingProgress progress ev
       cc <- readTVarIO (pComponentsCompiling progress)
-      M.lookup pid (ccComponentEvents cc)
-        @?= Just (ComponentFailed "boom")
-
-  , testCase "successive CompilingModule events overwrite" $ do
-      progress <- initProgress 1
-      let pid       = mkPkgId "text-2.0.2"
-          Just ev1  = parseGhcLine "text-2.0.2: [1 of 5] Compiling Data.Text.Internal ( src, obj )"
-          Just ev2  = parseGhcLine "text-2.0.2: [2 of 5] Compiling Data.Text ( src, obj )"
-      atomically $ makingProgress progress ev1
-      atomically $ makingProgress progress ev2
-      cc <- readTVarIO (pComponentsCompiling progress)
-      M.lookup pid (ccComponentEvents cc)
-        @?= Just (CompilingModule "Data.Text" 1 5)
+      M.lookup pid (ccComponentEvents cc) @?= Just (ComponentFailed "boom")
   ]
 
 completedCountTests :: TestTree
 completedCountTests = testGroup "completedCount"
   [ testCase "empty map → 0" $
-      completedCount (ComponentsCompiling M.empty) @?= 0
-
+      completedCount (ComponentsCompiling M.empty M.empty) @?= 0
   , testCase "only CompilingModule → 0" $ do
       progress <- initProgress 1
       let Just ev = parseGhcLine "text-2.0.2: [1 of 5] Compiling Foo ( src, obj )"
       atomically $ makingProgress progress ev
       cc <- readTVarIO (pComponentsCompiling progress)
       completedCount cc @?= 0
-
   , testCase "one ComponentDone → 1" $ do
       progress <- initProgress 1
-      atomically $ makingProgress progress
-        (ProgressEvent (mkPkgId "text-2.0.2") ComponentDone)
+      atomically $ makingProgress progress (ProgressEvent (mkPkgId "text-2.0.2") ComponentDone)
       cc <- readTVarIO (pComponentsCompiling progress)
       completedCount cc @?= 1
-
   , testCase "ComponentFailed counts as done" $ do
       progress <- initProgress 1
-      atomically $ makingProgress progress
-        (ProgressEvent (mkPkgId "text-2.0.2") (ComponentFailed "boom"))
+      atomically $ makingProgress progress (ProgressEvent (mkPkgId "text-2.0.2") (ComponentFailed "boom"))
       cc <- readTVarIO (pComponentsCompiling progress)
       completedCount cc @?= 1
-
   , testCase "mixed map → sum of terminal entries" $ do
       progress <- initProgress 3
       let Just ev = parseGhcLine "a-1.0: [1 of 2] Compiling Foo ( src, obj )"
       atomically $ makingProgress progress ev
-      atomically $ makingProgress progress
-        (ProgressEvent (mkPkgId "b-1.0") ComponentDone)
-      atomically $ makingProgress progress
-        (ProgressEvent (mkPkgId "c-1.0") (ComponentFailed "boom"))
+      atomically $ makingProgress progress (ProgressEvent (mkPkgId "b-1.0") ComponentDone)
+      atomically $ makingProgress progress (ProgressEvent (mkPkgId "c-1.0") (ComponentFailed "boom"))
       cc <- readTVarIO (pComponentsCompiling progress)
       completedCount cc @?= 2
   ]
@@ -266,9 +242,9 @@ progressVerbosityTests = testGroup "progressVerbosity"
           v'  = progressVerbosity progress v0 w
           hs0 = verbosityHandles v0
           hs' = verbosityHandles v'
-      vCabalStdout hs' @?= vCabalStderr hs0   -- redirected
-      vCabalStderr hs' @?= vCabalStderr hs0   -- preserved
-      vGHCOutput   hs' @?= w                  -- pipe
+      vCabalStdout hs' @?= vCabalStderr hs0
+      vCabalStderr hs' @?= vCabalStderr hs0
+      vGHCOutput   hs' @?= w
       isJust (vProgressSink hs') @? "sink installed"
       hClose r >> hClose w
   ]
@@ -276,20 +252,16 @@ progressVerbosityTests = testGroup "progressVerbosity"
 componentLineTests :: TestTree
 componentLineTests = testGroup "componentLine"
   [ testCase "CompilingModule → Just" $
-      isJust (componentLine defaultColumnWidths
-                (mkPkgId "text-2.0.2")
-                (CompilingModule "Data.Text" 2 5))
+      isJust (componentLine defaultColumnWidths (mkPkgId "text-2.0.2") (CompilingModule "Data.Text" 2 5))
         @? "expected Just"
-
-  , testCase "ComponentDone → Just done ✓" $
+  , testCase "ComponentDone → Just done" $
       case componentLine defaultColumnWidths (mkPkgId "text-2.0.2") ComponentDone of
-        Just _  -> pure ()
-        Nothing -> assertFailure "expected Just, but got Nothing"
-
-  , testCase "ComponentFailed → Nothing" $
-      componentLine defaultColumnWidths
-        (mkPkgId "text-2.0.2") (ComponentFailed "boom")
-        @?= Nothing
+        Just line -> assertBool "contains done" ("Done" `T.isInfixOf` line)
+        Nothing   -> assertFailure "expected Just"
+  , testCase "ComponentFailed → Just Failed" $
+      case componentLine defaultColumnWidths (mkPkgId "text-2.0.2") (ComponentFailed "boom") of
+        Just line -> assertBool "contains Failed" ("Failed" `T.isInfixOf` line)
+        Nothing   -> assertFailure "expected Just"
   ]
 
 drainGhcTests :: TestTree
@@ -309,7 +281,6 @@ drainGhcTests = testGroup "drainGhc"
         @?= Just (CompilingModule "Foo" 0 5)
       M.lookup (mkPkgId "bytestring-0.12.1.0") (ccComponentEvents cc)
         @?= Just (CompilingModule "Bar" 0 3)
-
   , testCase "empty pipe → empty map" $ do
       progress <- initProgress 0
       (r, w)   <- createPipe
@@ -324,10 +295,8 @@ ansiTests :: TestTree
 ansiTests = testGroup "ANSI"
   [ testCase "moveCursorLinesUp 0 → empty" $
       moveCursorLinesUp 0 @?= ""
-
   , testCase "moveCursorLinesUp 3 → ESC[3F" $
       moveCursorLinesUp 3 @?= "\ESC[3F"
-
   , testCase "clearToEndOfScreen → ESC[J" $
       clearToEndOfScreen @?= "\ESC[J"
   ]
@@ -335,28 +304,25 @@ ansiTests = testGroup "ANSI"
 renderStateTests :: TestTree
 renderStateTests = testGroup "renderState"
   [ testCase "empty map → just total line" $
-      length (renderState M.empty 0 3) @?= 1
-
+      length (renderState (ComponentsCompiling M.empty M.empty) 0 3) @?= 1
   , testCase "CompilingModule → total + local line" $ do
       progress <- initProgress 2
       let Just ev = parseGhcLine "text-2.0.2: [3 of 5] Compiling Data.Text ( src, obj )"
       atomically $ makingProgress progress ev
       cc <- readTVarIO (pComponentsCompiling progress)
-      let ls = renderState (ccComponentEvents cc) (completedCount cc) 2
+      let ls = renderState cc (completedCount cc) 2
       length ls @?= 2
-
   , testCase "ComponentDone → total + completed line" $ do
       progress <- initProgress 1
-      atomically $ makingProgress progress
-        (ProgressEvent (mkPkgId "text-2.0.2") ComponentDone)
+      atomically $ makingProgress progress (ProgressEvent (mkPkgId "text-2.0.2") ComponentDone)
       cc <- readTVarIO (pComponentsCompiling progress)
-      let lines = renderState (ccComponentEvents cc) (completedCount cc) 1
+      let lines = renderState cc (completedCount cc) 1
       length lines @?= 2
   ]
 
 drawOnceTests :: TestTree
 drawOnceTests = testGroup "drawOnce"
-  [ testCase "writes total + local line to handle" $ do
+  [ testCase "writes local line to handle" $ do
       progress <- initProgress 2
       let Just ev = parseGhcLine "text-2.0.2: [3 of 5] Compiling Data.Text ( src, obj )"
       atomically $ makingProgress progress ev
@@ -367,9 +333,9 @@ drawOnceTests = testGroup "drawOnce"
       hClose h
       contents <- readFile path
       removeFile path
-      assertBool "total"   $ "total"      `isInfixOf` contents
-      assertBool "local"   $ "text-2.0.2" `isInfixOf` contents
-      assertBool "module"  $ "Data.Text"  `isInfixOf` contents
+      assertBool "local name"  $ "text"      `isInfixOf` contents
+      assertBool "local ver"   $ "2.0.2"     `isInfixOf` contents
+      assertBool "module"      $ "Data.Text" `isInfixOf` contents
       n <- readIORef linesRef
       n @?= 2
   ]
@@ -382,14 +348,13 @@ runnerTests = testGroup "runner"
       bracketProgress h 1 $ \progress -> do
         let Just ev = parseGhcLine "text-2.0.2: [3 of 5] Compiling Data.Text ( src, obj )"
         atomically $ makingProgress progress ev
-        threadDelay 200000            -- give runner time to wake and draw
+        threadDelay 200000
       hClose h
       contents <- readFile path
       removeFile path
-      assertBool "local line rendered" $
-        "text-2.0.2" `isInfixOf` contents
-      assertBool "module rendered" $
-        "Data.Text" `isInfixOf` contents
+      assertBool "local name" $ "text"      `isInfixOf` contents
+      assertBool "local ver"  $ "2.0.2"     `isInfixOf` contents
+      assertBool "module"     $ "Data.Text" `isInfixOf` contents
   ]
 
 withPipeForTests :: TestTree
@@ -399,14 +364,9 @@ withPipeForTests = testGroup "withPipeFor"
       let consumer h = do
             line <- hGetLine h
             putMVar received line
-
-      -- The action writes a line, then blocks waiting for the consumer.
-      -- If the write handle is block-buffered, the consumer never gets the line,
-      -- and the action deadlocks.
       mres <- timeout 1000000 $ withPipeFor consumer $ \writeH -> do
         hPutStrLn writeH "hello"
         takeMVar received
-
       case mres of
         Nothing  -> assertFailure "Timeout: line was not flushed to the consumer"
         Just line -> line @?= "hello"
@@ -417,20 +377,15 @@ withTeeTests = testGroup "withTee"
   [ testCase "line buffering: delivers lines to sink before write end is closed" $ do
       received <- newEmptyMVar
       (sinkR, sinkW) <- createPipe
-      hSetBuffering sinkW LineBuffering -- ensure the test sink itself is line-buffered
-      
-      -- Reader for the sink
+      hSetBuffering sinkW LineBuffering
       _ <- async $ do
         line <- hGetLine sinkR
         putMVar received line
-
       mres <- timeout 1000000 $ withTee "pkg" [(sinkW, False)] $ \writeH -> do
         hPutStrLn writeH "hello"
         takeMVar received
-
       hClose sinkR
       hClose sinkW
-
       case mres of
         Nothing  -> assertFailure "Timeout: withTee did not flush to the sink"
         Just line -> line @?= "hello"

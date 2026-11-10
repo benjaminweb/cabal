@@ -14,6 +14,7 @@ import System.IO (hFlush, stdout, Handle)
 import qualified Data.Map.Strict as M
 
 import Distribution.Types.Progress
+import Distribution.Client.Progress.State (ComponentsCompiling(..))
 import Distribution.Pretty          (prettyShow)
 import Distribution.Types.PackageId (PackageIdentifier)
 
@@ -29,13 +30,10 @@ redraw h prevLines newLines = do
   TIO.hPutStr h (redrawFrames prevLines newLines)
   hFlush h
 
-renderState :: M.Map PackageIdentifier ComponentEvent
-            -> Int    -- ^ done count
-            -> Int    -- ^ total count
-            -> [Text]
-renderState eventMap doneCount totalCount =
-  totalLine defaultColumnWidths doneCount totalCount
-    : componentLines (M.assocs eventMap)
+renderState :: ComponentsCompiling -> Int -> Int -> [Text]
+renderState cc@ComponentsCompiling{..} donePkgs totalPkgs =
+  totalLine defaultColumnWidths donePkgs totalPkgs
+    : componentLines (M.toList ccComponentEvents)
 
 data ProgressBarConfig =
      ProgressBarConfig { pbcWidth            :: Int  -- ^ Width in characters on terminal.
@@ -47,13 +45,13 @@ defaultTotalBar :: ProgressBarConfig
 defaultTotalBar =  ProgressBarConfig 40 (T.singleton '\x25B1') (T.singleton '\x25B0')
 
 totalLine :: ColumnWidths -> Int -> Int -> Text
-totalLine ColumnWidths{..} done total =
-  align ToLeft cwName "total"
+totalLine ColumnWidths{..} donePkgs totalPkgs =
+  align ToLeft cwName ""
     <> " " <> align ToLeft cwVersion ""
     <> " " <> align ToRight cwPhase ""
-    <> "  " <> align ToRight cwRatio (ratio cwRatioDigits done total)
+    <> "  " <> align ToRight cwRatio (ratio cwRatioDigits donePkgs totalPkgs)
     <> "   "
-    <> progressBar defaultTotalBar done total
+    <> progressBar defaultTotalBar donePkgs totalPkgs
 
 splitPkgId :: PackageIdentifier -> (Text, Text)
 splitPkgId pkgid =
