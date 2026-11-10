@@ -38,6 +38,7 @@ withPipeFor :: (Handle -> IO ()) -> (Handle -> IO a) -> IO a
 withPipeFor consumer action = do
   (readHndl, writeHndl) <- createPipe
   hSetBuffering readHndl LineBuffering
+  hSetBuffering writeHndl LineBuffering
   let run = withAsync (consumer readHndl) $ \reader -> do
               let finish = closeQuietly writeHndl >> void (waitCatch reader)
               result <- action writeHndl `onException` finish

@@ -20,7 +20,7 @@ import Distribution.Verbosity
 -- progress bar, and whose lifecycle events update that bar.
 withProgressBar :: Verbosity -> Int -> (Verbosity -> IO a) -> IO a
 withProgressBar verbosity0 totalComponents k =
-  bracketProgress totalComponents $ \progress ->
+  bracketProgress stdout totalComponents $ \progress ->
     withPipeFor (drainGhc progress) $ \ghcWrite ->
       k (progressVerbosity progress verbosity0 ghcWrite)
 
@@ -28,10 +28,10 @@ withProgressBar verbosity0 totalComponents k =
 -- start the renderer thread, and cancel it (clearing the display via
 -- 'runner'\'s own @finally@) when the body exits — normally or by
 -- exception.
-bracketProgress :: Int -> (Progress -> IO a) -> IO a
-bracketProgress totalComponents k = do
+bracketProgress :: Handle -> Int -> (Progress -> IO a) -> IO a
+bracketProgress h totalComponents k = do
   progress <- initProgress totalComponents
-  withAsync (runner progress) $ \_ -> k progress
+  withAsync (runner h progress) $ \_ -> k progress
 
 -- | Rewire a 'Verbosity' so that
 --

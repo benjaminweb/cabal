@@ -4,14 +4,22 @@ module UnitTests.Distribution.Client.Progress (tests) where
 import Test.Tasty
 import Test.Tasty.HUnit
 
-import Data.Either    (isLeft)
-import Data.Maybe     (isJust)
-import System.IO      (hClose, hPutStrLn)
-import System.Process (createPipe)
-import Text.Parsec    (parse)
+import Data.Either      (isLeft)
+import Data.Maybe       (isJust)
+import System.IO        (hGetLine, hPutStrLn, hClose, openTempFile, hSetBuffering, BufferMode (LineBuffering))
+import System.Directory (getTemporaryDirectory, removeFile) 
+import System.Timeout   (timeout)
+import System.Process   (createPipe)
+import Text.Parsec      (parse)
 import qualified Data.Map.Strict as M
-import Control.Concurrent.STM (readTVarIO, atomically, readTVarIO)
+import Control.Concurrent (threadDelay)
+import Control.Concurrent.Async (async)
+import Control.Concurrent.STM  (readTVarIO, atomically, readTVarIO)
+import Control.Concurrent.MVar (newEmptyMVar, putMVar, takeMVar)
 import Control.Exception (try, IOException)
+import Data.IORef        (newIORef, readIORef)
+import Data.List         (isInfixOf)
+import qualified Data.Text as T
 
 import Distribution.Parsec                   (simpleParsec)
 import Distribution.Types.PackageId          (PackageIdentifier (..))
@@ -19,8 +27,11 @@ import Distribution.Types.Progress           (ComponentEvent(..), ProgressEvent(
 
 import Distribution.Client.Progress          (bracketProgress, drainGhc, progressVerbosity)
 import Distribution.Client.Progress.Parser   (rectBracket, ghcLineParser, parseGhcLine, progressEventParser)
-import Distribution.Client.Progress.Render   (filledSegments, clearToEndOfScreen, moveCursorLinesUp, defaultColumnWidths, componentLine)
+import Distribution.Client.Progress.Runner   (drawOnce)
+import Distribution.Client.Progress.Render   (filledSegments, clearToEndOfScreen, moveCursorLinesUp, defaultColumnWidths, componentLine, renderState)
 import Distribution.Client.Progress.State    (Progress(..), ComponentsCompiling (..), initProgress, makingProgress, completedCount)
+import Distribution.Client.Utils.Handle      (withPipeFor, withTee)
+
 import Distribution.Verbosity
   ( VerbosityHandles (..)
   , defaultVerbosityHandles
@@ -38,7 +49,9 @@ mkPkgId s = case simpleParsec s of
   Nothing -> error ("test setup: bad package id " ++ s)
 
 tests :: [TestTree]
-tests = [testGroup "Distribution.Client.Progress" [progress, parser, withProgressBarParts, tvTests, stickyTests, completedCountTests, progressVerbosityTests, componentLineTests, drainGhcTests, ansiTests]]
+tests = [testGroup "Distribution.Client.Progress" [ progress, parser, withProgressBarParts, tvTests, stickyTests, completedCountTests
+                                                  , progressVerbosityTests, componentLineTests, drainGhcTests, ansiTests, renderStateTests
+                                                  , drawOnceTests, runnerTests, withPipeForTests, withTeeTests]] 
 
 progress = testGroup "progress lib"
  [ testCase "filledSegments computes scaled filled count correctly" $ do
@@ -131,9 +144,13 @@ withProgressBarParts = testGroup "withProgressBar tests"
         Just (CompilingModule "Data.Text.Internal" 1 5) -> pure ()
         other -> assertFailure ("unexpected: " <> show other)
   , testCase "bracketProgress cancels renderer on exception" $ do
-      r <- try $ bracketProgress 0 $ \_ -> ioError (userError "boom")
+      tmpDir <- getTemporaryDirectory
+      (path, h) <- openTempFile tmpDir "cabal-bracket"
+      r <- try $ bracketProgress h 0 $ \_ -> ioError (userError "boom")
+      hClose h
+      removeFile path
       case r :: Either IOException () of
-        Left _  -> pure ()   -- renderer was cancelled; no leaked thread
+        Left  _ -> pure ()
         Right _ -> assertFailure "expected exception"
   ]
 
@@ -264,10 +281,10 @@ componentLineTests = testGroup "componentLine"
                 (CompilingModule "Data.Text" 2 5))
         @? "expected Just"
 
-  , testCase "ComponentDone → Nothing" $
-      componentLine defaultColumnWidths
-        (mkPkgId "text-2.0.2") ComponentDone
-        @?= Nothing
+  , testCase "ComponentDone → Just done ✓" $
+      case componentLine defaultColumnWidths (mkPkgId "text-2.0.2") ComponentDone of
+        Just _  -> pure ()
+        Nothing -> assertFailure "expected Just, but got Nothing"
 
   , testCase "ComponentFailed → Nothing" $
       componentLine defaultColumnWidths
@@ -313,4 +330,108 @@ ansiTests = testGroup "ANSI"
 
   , testCase "clearToEndOfScreen → ESC[J" $
       clearToEndOfScreen @?= "\ESC[J"
+  ]
+
+renderStateTests :: TestTree
+renderStateTests = testGroup "renderState"
+  [ testCase "empty map → just total line" $
+      length (renderState M.empty 0 3) @?= 1
+
+  , testCase "CompilingModule → total + local line" $ do
+      progress <- initProgress 2
+      let Just ev = parseGhcLine "text-2.0.2: [3 of 5] Compiling Data.Text ( src, obj )"
+      atomically $ makingProgress progress ev
+      cc <- readTVarIO (pComponentsCompiling progress)
+      let ls = renderState (ccComponentEvents cc) (completedCount cc) 2
+      length ls @?= 2
+
+  , testCase "ComponentDone → total + completed line" $ do
+      progress <- initProgress 1
+      atomically $ makingProgress progress
+        (ProgressEvent (mkPkgId "text-2.0.2") ComponentDone)
+      cc <- readTVarIO (pComponentsCompiling progress)
+      let lines = renderState (ccComponentEvents cc) (completedCount cc) 1
+      length lines @?= 2
+  ]
+
+drawOnceTests :: TestTree
+drawOnceTests = testGroup "drawOnce"
+  [ testCase "writes total + local line to handle" $ do
+      progress <- initProgress 2
+      let Just ev = parseGhcLine "text-2.0.2: [3 of 5] Compiling Data.Text ( src, obj )"
+      atomically $ makingProgress progress ev
+      linesRef <- newIORef 0
+      tmpDir   <- getTemporaryDirectory
+      (path, h) <- openTempFile tmpDir "cabal-draw"
+      drawOnce h progress linesRef
+      hClose h
+      contents <- readFile path
+      removeFile path
+      assertBool "total"   $ "total"      `isInfixOf` contents
+      assertBool "local"   $ "text-2.0.2" `isInfixOf` contents
+      assertBool "module"  $ "Data.Text"  `isInfixOf` contents
+      n <- readIORef linesRef
+      n @?= 2
+  ]
+
+runnerTests :: TestTree
+runnerTests = testGroup "runner"
+  [ testCase "renders local lines for a compiling package" $ do
+      tmpDir <- getTemporaryDirectory
+      (path, h) <- openTempFile tmpDir "cabal-runner"
+      bracketProgress h 1 $ \progress -> do
+        let Just ev = parseGhcLine "text-2.0.2: [3 of 5] Compiling Data.Text ( src, obj )"
+        atomically $ makingProgress progress ev
+        threadDelay 200000            -- give runner time to wake and draw
+      hClose h
+      contents <- readFile path
+      removeFile path
+      assertBool "local line rendered" $
+        "text-2.0.2" `isInfixOf` contents
+      assertBool "module rendered" $
+        "Data.Text" `isInfixOf` contents
+  ]
+
+withPipeForTests :: TestTree
+withPipeForTests = testGroup "withPipeFor"
+  [ testCase "line buffering: delivers lines before write end is closed" $ do
+      received <- newEmptyMVar
+      let consumer h = do
+            line <- hGetLine h
+            putMVar received line
+
+      -- The action writes a line, then blocks waiting for the consumer.
+      -- If the write handle is block-buffered, the consumer never gets the line,
+      -- and the action deadlocks.
+      mres <- timeout 1000000 $ withPipeFor consumer $ \writeH -> do
+        hPutStrLn writeH "hello"
+        takeMVar received
+
+      case mres of
+        Nothing  -> assertFailure "Timeout: line was not flushed to the consumer"
+        Just line -> line @?= "hello"
+  ]
+
+withTeeTests :: TestTree
+withTeeTests = testGroup "withTee"
+  [ testCase "line buffering: delivers lines to sink before write end is closed" $ do
+      received <- newEmptyMVar
+      (sinkR, sinkW) <- createPipe
+      hSetBuffering sinkW LineBuffering -- ensure the test sink itself is line-buffered
+      
+      -- Reader for the sink
+      _ <- async $ do
+        line <- hGetLine sinkR
+        putMVar received line
+
+      mres <- timeout 1000000 $ withTee "pkg" [(sinkW, False)] $ \writeH -> do
+        hPutStrLn writeH "hello"
+        takeMVar received
+
+      hClose sinkR
+      hClose sinkW
+
+      case mres of
+        Nothing  -> assertFailure "Timeout: withTee did not flush to the sink"
+        Just line -> line @?= "hello"
   ]

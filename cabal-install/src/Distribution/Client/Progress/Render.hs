@@ -1,6 +1,6 @@
 {-# LANGUAGE RecordWildCards, OverloadedStrings #-}
 module Distribution.Client.Progress.Render
-  ( redraw, totalLine, componentLine, componentLines
+  ( redraw, renderState, totalLine, componentLine, componentLines
   , ColumnWidths, defaultColumnWidths, Align(..), align
   , progressBar, ratio, filledSegments
   , moveCursorLinesUp, clearToEndOfScreen
@@ -10,21 +10,32 @@ import Data.Text (Text)
 import qualified Data.Text as T
 import qualified Data.Text.IO as TIO
 import Data.Maybe (mapMaybe)
-import System.IO (hFlush, stdout)
+import System.IO (hFlush, stdout, Handle)
+import qualified Data.Map.Strict as M
 
 import Distribution.Types.Progress
 import Distribution.Pretty          (prettyShow)
 import Distribution.Types.PackageId (PackageIdentifier)
 
+redrawFrames :: Int -> [Text] -> Text
+redrawFrames prevLines newLines =
+  moveCursorLinesUp prevLines
+    <> clearToEndOfScreen
+    <> mconcat (map (<> "\n") newLines)
+
 -- | Deletes any previously drawn lines and draws the new set of lines in place.
-redraw :: Int    -- ^ Previous line count (required to be deleted before we redraw the content)
-       -> [Text] -- ^ New lines to be drawn.
-       -> IO ()
-redraw prevLineCount newLines = do
-  TIO.putStr $ moveCursorLinesUp prevLineCount
-  TIO.putStr clearToEndOfScreen
-  mapM_ TIO.putStrLn newLines
-  hFlush stdout
+redraw :: Handle -> Int -> [Text] -> IO ()
+redraw h prevLines newLines = do
+  TIO.hPutStr h (redrawFrames prevLines newLines)
+  hFlush h
+
+renderState :: M.Map PackageIdentifier ComponentEvent
+            -> Int    -- ^ done count
+            -> Int    -- ^ total count
+            -> [Text]
+renderState eventMap doneCount totalCount =
+  totalLine defaultColumnWidths doneCount totalCount
+    : componentLines (M.assocs eventMap)
 
 data ProgressBarConfig =
      ProgressBarConfig { pbcWidth            :: Int  -- ^ Width in characters on terminal.
@@ -48,7 +59,11 @@ componentLine ColumnWidths {..} packageId ce = case ce of
                                        CompilingModule {..} -> Just $ align ToLeft cwAggregate (T.pack (prettyShow packageId) <> " ") <>
                                                                                ratio cwRatioDigits ceDoneCount ceTotalCount <> " " <> "   " <>
                                                                                align ToLeft cwBarOrModule ceModuleName
-                                       ComponentDone       -> Nothing
+                                       ComponentDone ->
+                                          Just $ align ToLeft cwAggregate (T.pack (prettyShow packageId) <> " ")
+                                              <> align ToLeft cwRatio "   done   "
+                                              <> "   "
+                                              <> align ToLeft cwBarOrModule "✓"
                                        ComponentFailed _   -> Nothing
 
 
