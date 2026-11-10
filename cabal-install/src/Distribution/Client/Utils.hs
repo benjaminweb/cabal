@@ -108,6 +108,7 @@ import Data.Time.Clock.POSIX (getCurrentTime)
 import Data.Time.LocalTime (getCurrentTimeZone, localDay)
 import Distribution.Simple.PackageDescription (readGenericPackageDescription)
 import Distribution.Types.GenericPackageDescription (GenericPackageDescription)
+import Distribution.Types.Progress (ComponentEvent(..), ProgressEvent(..))
 import GHC.Conc.Sync (getNumProcessors)
 import GHC.IO.Encoding
   ( TextEncoding (TextEncoding)
@@ -431,9 +432,21 @@ data ProgressPhase
   | ProgressCompleted
 
 progressMessage :: Verbosity -> ProgressPhase -> String -> IO ()
-progressMessage verbosity phase subject = do
+progressMessage verbosity phase subject =
   case vProgressSink (verbosityHandles verbosity) of
-    Just _  -> return ()
+    Just sink -> 
+      case simpleParsec subject of
+        Just pkgid -> 
+          let ev = case phase of
+                ProgressDownloading -> Downloading
+                ProgressDownloaded  -> Downloaded
+                ProgressStarting    -> Configuring
+                ProgressBuilding    -> Building
+                ProgressInstalling  -> Installing
+                ProgressHaddock     -> Building -- or add a separate Haddock phase
+                ProgressCompleted   -> ComponentDone
+          in sink (ProgressEvent pkgid ev)
+        Nothing -> pure ()
     Nothing -> noticeNoWrap verbosity $ phaseStr ++ subject ++ "\n"
   where
     phaseStr = case phase of

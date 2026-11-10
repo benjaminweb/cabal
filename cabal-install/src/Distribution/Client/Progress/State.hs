@@ -38,9 +38,21 @@ makingProgress Progress{..} ge = do
     isTerminal (ComponentFailed _) = True
     isTerminal _                   = False
 
+rank :: ComponentEvent -> Int
+rank Downloading               = 1
+rank Downloaded                = 2
+rank Configuring               = 3
+rank Building                  = 4
+rank (CompilingModule _ _ _)   = 5
+rank Installing                = 6
+rank ComponentDone             = 7
+rank (ComponentFailed _)       = 8
+
 updateComponentsCompiling :: ProgressEvent -> ComponentsCompiling -> ComponentsCompiling
-updateComponentsCompiling ProgressEvent {..} cc@ComponentsCompiling {..} =
-  cc { ccComponentEvents = M.insert pePackageId peEvent ccComponentEvents }
+updateComponentsCompiling ge@ProgressEvent{..} cc@ComponentsCompiling{..} =
+  case M.lookup pePackageId ccComponentEvents of
+    Just old | rank old > rank peEvent -> cc
+    _ -> cc { ccComponentEvents = M.insert pePackageId peEvent ccComponentEvents }
 
 completedCount :: ComponentsCompiling -> Int
 completedCount (ComponentsCompiling m) =

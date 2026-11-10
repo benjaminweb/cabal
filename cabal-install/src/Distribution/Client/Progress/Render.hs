@@ -48,44 +48,55 @@ defaultTotalBar =  ProgressBarConfig 40 (T.singleton '\x25B1') (T.singleton '\x2
 
 totalLine :: ColumnWidths -> Int -> Int -> Text
 totalLine ColumnWidths{..} done total =
-  align ToLeft cwAggregate "total "
+  align ToLeft (cwName + cwVersion + 1) "total"
     <> align ToLeft cwRatio (ratio cwRatioDigits done total <> " ")
     <> "   "
     <> progressBar defaultTotalBar done total
+
+splitPkgId :: PackageIdentifier -> (Text, Text)
+splitPkgId pkgid =
+  let t = T.pack (prettyShow pkgid)
+      (verRev, nameRev) = T.span (/= '-') (T.reverse t)
+  in (T.reverse (T.drop 1 nameRev), T.reverse verRev)
 
 componentLine :: ColumnWidths
               -> PackageIdentifier
               -> ComponentEvent -- ^ When component has moved to compile next module or completed compilation.
               -> Maybe Text     -- ^ Component progress line.
-componentLine ColumnWidths{..} pkgid ce = case ce of
-  CompilingModule{..} ->
-    Just $ align ToLeft cwAggregate (T.pack (prettyShow pkgid) <> " ")
-        <> align ToLeft cwRatio (ratio cwRatioDigits ceDoneCount ceTotalCount <> " ")
-        <> "   "
-        <> align ToLeft cwBarOrModule ceModuleName
-  ComponentDone ->
-    Just $ align ToLeft cwAggregate (T.pack (prettyShow pkgid) <> " ")
-        <> align ToLeft cwRatio "   done   "
-        <> "   "
-        <> align ToLeft cwBarOrModule "✓"
-  ComponentFailed reason ->
-    Just $ align ToLeft cwAggregate (T.pack (prettyShow pkgid) <> " ")
-        <> align ToLeft cwRatio "  failed  "
-        <> "   "
-        <> align ToLeft cwBarOrModule (T.take cwBarOrModule reason)
+componentLine ColumnWidths{..} pkgid ce = 
+  let (nameClean, verClean) = splitPkgId pkgid
+      prefix = align ToLeft cwName nameClean 
+            <> align ToLeft cwVersion verClean
+            <> " "
+      blank = align ToLeft cwRatio "         " <> "   "
+  in case ce of
+    Downloading       -> Just $ prefix <> blank <> "⬇️  Downloading..."
+    Downloaded        -> Just $ prefix <> blank <> "⬇️  Downloaded"
+    Configuring       -> Just $ prefix <> blank <> "⚙️  Configuring..."
+    Building          -> Just $ prefix <> blank <> "⚒ Building..."
+    CompilingModule{..} ->
+      Just $ prefix 
+          <> align ToLeft cwRatio (ratio cwRatioDigits ceDoneCount ceTotalCount <> " ")
+          <> "   "
+          <> "📦 " <> align ToLeft (cwBarOrModule - 3) ceModuleName
+    Installing        -> Just $ prefix <> blank <> "🚀 Installing..."
+    ComponentDone     -> Just $ prefix <> blank <> "✓  done"
+    ComponentFailed reason ->
+      Just $ prefix <> blank <> "❌ " <> T.take (cwBarOrModule - 3) reason
 
 componentLines :: [(PackageIdentifier, ComponentEvent)] -> [Text]
 componentLines = mapMaybe (uncurry $ componentLine defaultColumnWidths)
 
-data ColumnWidths =
-     ColumnWidths { cwAggregate   :: Int
-                  , cwRatio       :: Int
-                  , cwRatioDigits :: Int
-                  , cwBarOrModule :: Int -- ^ Should be `pbcWidth`
-                  } deriving Show
+data ColumnWidths = ColumnWidths
+  { cwName        :: Int  -- ^ Package name
+  , cwVersion     :: Int  -- ^ Version
+  , cwRatio       :: Int  -- ^ Ratio string
+  , cwRatioDigits :: Int
+  , cwBarOrModule :: Int
+  } deriving Show
 
 defaultColumnWidths :: ColumnWidths
-defaultColumnWidths =  ColumnWidths 22 12 3 (pbcWidth defaultTotalBar)
+defaultColumnWidths =  ColumnWidths 22 10 12 3 (pbcWidth defaultTotalBar)
 
 data Align = ToLeft
            | ToRight deriving (Show, Eq)

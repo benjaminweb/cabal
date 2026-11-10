@@ -1448,7 +1448,7 @@ performInstallations
     fetchLimit <- newJobLimit (min numJobs maxNumFetchJobs)
     installLock <- newLock -- serialise installation
     cacheLock <- newLock -- serialise access to setup exe cache
-    let totalComponents = length $ fst (InstallPlan.ready installPlan)
+    let totalComponents = length (InstallPlan.executionOrder installPlan)
         runInstall verb' =
           executeInstallPlan
             verb'
@@ -1463,7 +1463,7 @@ performInstallations
                 configFlags
                 rpkg
                 $ \configFlags' src pkg pkgoverride ->
-                  fetchSourcePackage verb' repoCtxt fetchLimit src $ \src' ->
+                  fetchSourcePackage verb' (packageId pkg) repoCtxt fetchLimit src $ \src' ->
                     installLocalPackage verb' (packageId pkg) src' distPref $ \mpath ->
                       installUnpackedPackage
                         verb'
@@ -1700,19 +1700,22 @@ installReadyPackage
 
 fetchSourcePackage
   :: Verbosity
+  -> PackageIdentifier    -- ^ Add this
   -> RepoContext
   -> JobLimit
   -> UnresolvedPkgLoc
   -> (ResolvedPkgLoc -> IO BuildOutcome)
   -> IO BuildOutcome
-fetchSourcePackage verbosity repoCtxt fetchLimit src installPkg = do
+fetchSourcePackage verbosity pkgid repoCtxt fetchLimit src installPkg = do
   fetched <- checkFetched src
   case fetched of
     Just src' -> installPkg src'
     Nothing -> onFailure DownloadFailed $ do
+      progressMessage verbosity ProgressDownloading (prettyShow pkgid)
       loc <-
         withJobLimit fetchLimit $
           fetchPackage verbosity repoCtxt src
+      progressMessage verbosity ProgressDownloaded (prettyShow pkgid)
       installPkg loc
 
 installLocalPackage
@@ -1957,6 +1960,7 @@ installUnpackedPackage
 
             -- Install phase
             onFailure InstallFailed $ criticalSection installLock $ do
+              noticeProgress ProgressInstalling
               -- Actual installation
               withWin32SelfUpgrade
                 verbosity
@@ -2001,8 +2005,7 @@ installUnpackedPackage
       isParallelBuild = numJobs >= 2
 
       noticeProgress phase =
-        when isParallelBuild $
-          progressMessage verbosity phase dispname
+        progressMessage verbosity phase dispname
       verbosity' = maybe verbosity snd useLogFile
       tempTemplate name = name ++ "-" ++ prettyShow pkgid
 
