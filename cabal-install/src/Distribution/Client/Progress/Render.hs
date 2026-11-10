@@ -47,25 +47,32 @@ defaultTotalBar :: ProgressBarConfig
 defaultTotalBar =  ProgressBarConfig 40 (T.singleton '\x25B1') (T.singleton '\x25B0')
 
 totalLine :: ColumnWidths -> Int -> Int -> Text
-totalLine ColumnWidths {..} done total = align ToLeft cwAggregate "total " <>
-                                         align ToLeft cwRatio (ratio cwRatioDigits done total <> " ") <> "   " <>
-                                         progressBar defaultTotalBar done total
-                                        
+totalLine ColumnWidths{..} done total =
+  align ToLeft cwAggregate "total "
+    <> align ToLeft cwRatio (ratio cwRatioDigits done total <> " ")
+    <> "   "
+    <> progressBar defaultTotalBar done total
+
 componentLine :: ColumnWidths
               -> PackageIdentifier
               -> ComponentEvent -- ^ When component has moved to compile next module or completed compilation.
               -> Maybe Text     -- ^ Component progress line.
-componentLine ColumnWidths {..} packageId ce = case ce of
-                                       CompilingModule {..} -> Just $ align ToLeft cwAggregate (T.pack (prettyShow packageId) <> " ") <>
-                                                                               ratio cwRatioDigits ceDoneCount ceTotalCount <> " " <> "   " <>
-                                                                               align ToLeft cwBarOrModule ceModuleName
-                                       ComponentDone ->
-                                          Just $ align ToLeft cwAggregate (T.pack (prettyShow packageId) <> " ")
-                                              <> align ToLeft cwRatio "   done   "
-                                              <> "   "
-                                              <> align ToLeft cwBarOrModule "✓"
-                                       ComponentFailed _   -> Nothing
-
+componentLine ColumnWidths{..} pkgid ce = case ce of
+  CompilingModule{..} ->
+    Just $ align ToLeft cwAggregate (T.pack (prettyShow pkgid) <> " ")
+        <> align ToLeft cwRatio (ratio cwRatioDigits ceDoneCount ceTotalCount <> " ")
+        <> "   "
+        <> align ToLeft cwBarOrModule ceModuleName
+  ComponentDone ->
+    Just $ align ToLeft cwAggregate (T.pack (prettyShow pkgid) <> " ")
+        <> align ToLeft cwRatio "   done   "
+        <> "   "
+        <> align ToLeft cwBarOrModule "✓"
+  ComponentFailed reason ->
+    Just $ align ToLeft cwAggregate (T.pack (prettyShow pkgid) <> " ")
+        <> align ToLeft cwRatio "  failed  "
+        <> "   "
+        <> align ToLeft cwBarOrModule (T.take cwBarOrModule reason)
 
 componentLines :: [(PackageIdentifier, ComponentEvent)] -> [Text]
 componentLines = mapMaybe (uncurry $ componentLine defaultColumnWidths)
@@ -78,16 +85,18 @@ data ColumnWidths =
                   } deriving Show
 
 defaultColumnWidths :: ColumnWidths
-defaultColumnWidths =  ColumnWidths 15 10 3 (pbcWidth defaultTotalBar)
+defaultColumnWidths =  ColumnWidths 22 12 3 (pbcWidth defaultTotalBar)
 
 data Align = ToLeft
            | ToRight deriving (Show, Eq)
 
 align :: Align -> Int -> Text -> Text
-align to width t = let filling = T.replicate (max 0 $ width - T.length t) " " in
-                   case to of
-                     ToLeft  -> t <> filling
-                     ToRight -> filling <> t
+align to width t =
+  let t' = if T.length t > width then T.take width t else t
+      filling = T.replicate (max 0 (width - T.length t')) " "
+  in case to of
+       ToLeft  -> t' <> filling
+       ToRight -> filling <> t'
 
 progressBar :: ProgressBarConfig -> Int -> Int -> Text
 progressBar ProgressBarConfig {..} doneCount totalCount = let filled = filledSegments pbcWidth doneCount totalCount in
