@@ -48,8 +48,10 @@ defaultTotalBar =  ProgressBarConfig 40 (T.singleton '\x25B1') (T.singleton '\x2
 
 totalLine :: ColumnWidths -> Int -> Int -> Text
 totalLine ColumnWidths{..} done total =
-  align ToLeft (cwName + cwVersion + 1) "total"
-    <> align ToLeft cwRatio (ratio cwRatioDigits done total <> " ")
+  align ToLeft cwName "total"
+    <> " " <> align ToLeft cwVersion ""
+    <> " " <> align ToRight cwPhase ""
+    <> "  " <> align ToRight cwRatio (ratio cwRatioDigits done total)
     <> "   "
     <> progressBar defaultTotalBar done total
 
@@ -64,25 +66,30 @@ componentLine :: ColumnWidths
               -> ComponentEvent -- ^ When component has moved to compile next module or completed compilation.
               -> Maybe Text     -- ^ Component progress line.
 componentLine ColumnWidths{..} pkgid ce = 
-  let (nameClean, verClean) = splitPkgId pkgid
-      prefix = align ToLeft cwName nameClean 
-            <> align ToLeft cwVersion verClean
-            <> " "
-      blank = align ToLeft cwRatio "         " <> "   "
+  let pkgStr = T.pack (prettyShow pkgid)
+      (nameWithDash, ver) = T.breakOnEnd "-" pkgStr
+      nameClean = if T.null nameWithDash then pkgStr else T.dropEnd 1 nameWithDash
+      verClean  = if T.null nameWithDash then "" else ver
+      
+      base = align ToLeft cwName nameClean
+          <> " " <> align ToLeft cwVersion verClean
+          <> " " 
+          
+      phaseText str = align ToRight cwPhase str
+      blankTail = "  " <> align ToRight cwRatio "" 
+                  <> "   " <> align ToLeft cwBarOrModule ""
   in case ce of
-    Downloading       -> Just $ prefix <> blank <> "⬇️  Downloading..."
-    Downloaded        -> Just $ prefix <> blank <> "⬇️  Downloaded"
-    Configuring       -> Just $ prefix <> blank <> "⚙️  Configuring..."
-    Building          -> Just $ prefix <> blank <> "⚒ Building..."
+    Downloading -> Just $ base <> phaseText "Downloading" <> blankTail
+    Downloaded  -> Just $ base <> phaseText "Downloaded"  <> blankTail
+    Configuring -> Just $ base <> phaseText "Configuring" <> blankTail
+    Building    -> Just $ base <> phaseText "Building"    <> blankTail
     CompilingModule{..} ->
-      Just $ prefix 
-          <> align ToLeft cwRatio (ratio cwRatioDigits ceDoneCount ceTotalCount <> " ")
-          <> "   "
-          <> "📦 " <> align ToLeft (cwBarOrModule - 3) ceModuleName
-    Installing        -> Just $ prefix <> blank <> "🚀 Installing..."
-    ComponentDone     -> Just $ prefix <> blank <> "✓  done"
-    ComponentFailed reason ->
-      Just $ prefix <> blank <> "❌ " <> T.take (cwBarOrModule - 3) reason
+      Just $ base <> phaseText "Compiling"
+           <> "  " <> align ToRight cwRatio (ratio cwRatioDigits ceDoneCount ceTotalCount)
+           <> "   " <> align ToLeft cwBarOrModule ceModuleName
+    Installing  -> Just $ base <> phaseText "Installing"  <> blankTail
+    ComponentDone -> Just $ base <> phaseText "Done"      <> blankTail
+    ComponentFailed reason -> Just $ base <> phaseText "Failed" <> blankTail
 
 componentLines :: [(PackageIdentifier, ComponentEvent)] -> [Text]
 componentLines = mapMaybe (uncurry $ componentLine defaultColumnWidths)
@@ -90,13 +97,14 @@ componentLines = mapMaybe (uncurry $ componentLine defaultColumnWidths)
 data ColumnWidths = ColumnWidths
   { cwName        :: Int  -- ^ Package name
   , cwVersion     :: Int  -- ^ Version
+  , cwPhase       :: Int
   , cwRatio       :: Int  -- ^ Ratio string
   , cwRatioDigits :: Int
   , cwBarOrModule :: Int
   } deriving Show
 
 defaultColumnWidths :: ColumnWidths
-defaultColumnWidths =  ColumnWidths 22 10 12 3 (pbcWidth defaultTotalBar)
+defaultColumnWidths =  ColumnWidths 22 8 12 11 3 (pbcWidth defaultTotalBar)
 
 data Align = ToLeft
            | ToRight deriving (Show, Eq)
